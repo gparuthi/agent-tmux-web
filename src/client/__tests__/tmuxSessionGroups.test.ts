@@ -7,6 +7,7 @@ import {
   filterTmuxAgentPanes,
   groupTmuxPanes,
   hasUnseenTmuxActivity,
+  initialTmuxPaneSelection,
   isTmuxSessionGroupCollapsed,
   markTmuxPanesViewed,
   MAX_STORED_TMUX_PANE_VIEWS,
@@ -271,5 +272,52 @@ describe("rail order and the pane after a snooze", () => {
   it("falls back to the first unsnoozed row, or nothing", () => {
     expect(nextTmuxRailPaneAfter([], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 }), pane("%9", "gp")])).toBe("%9");
     expect(nextTmuxRailPaneAfter([pane("%1", "main")], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 })])).toBe("");
+  });
+});
+
+describe("initial pane selection", () => {
+  const agent = (name: string, session: string, lastInputAtMs: number, extra: Partial<TmuxSessionDto> = {}) =>
+    pane(name, session, { currentCommand: "claude", lastInputAtMs, ...extra });
+  // Raw tmux order: _hidden sorts first and holds the attached, active pane.
+  const entries = [
+    agent("%30", "_hidden", 900, { attached: true, windowActive: true, paneActive: true }),
+    agent("%1", "gp", 100),
+    pane("%2", "gp", { currentCommand: "zsh", lastInputAtMs: 800 }),
+    agent("%3", "main", 500),
+    agent("%4", "main", 50)
+  ];
+  const view = { pinnedNames: [], preferences: [], showAll: false };
+
+  it("never defaults into _hidden: the rail's first agent row wins over raw order", () => {
+    expect(initialTmuxPaneSelection(entries, null, view)).toBe("%3");
+  });
+
+  it("restores the stored pane while the rail still shows it", () => {
+    expect(initialTmuxPaneSelection(entries, "%4", view)).toBe("%4");
+    expect(initialTmuxPaneSelection(entries, "%gone", view)).toBe("%3");
+  });
+
+  it("skips a stored pane the rail hides: non-agent, collapsed group, or a default-collapsed _ session", () => {
+    expect(initialTmuxPaneSelection(entries, "%2", view)).toBe("%3");
+    expect(initialTmuxPaneSelection(entries, "%2", { ...view, showAll: true })).toBe("%2");
+    expect(initialTmuxPaneSelection(entries, "%4", { ...view, preferences: [["main", true]] })).toBe("%1");
+    expect(initialTmuxPaneSelection(entries, "%30", view)).toBe("%3");
+  });
+
+  it("restores a stored _hidden pane only when the owner expanded that group", () => {
+    expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["_hidden", false]] })).toBe("%30");
+    // Expanded, but nothing stored: the default still skips _ sessions.
+    expect(initialTmuxPaneSelection(entries, null, { ...view, preferences: [["_hidden", false]] })).toBe("%3");
+  });
+
+  it("puts pinned panes first, except pinned _ session panes", () => {
+    expect(initialTmuxPaneSelection(entries, null, { ...view, pinnedNames: ["%4"] })).toBe("%4");
+    expect(initialTmuxPaneSelection(entries, null, { ...view, pinnedNames: ["%30", "%1"] })).toBe("%1");
+  });
+
+  it("selects nothing when the rail shows nothing", () => {
+    expect(initialTmuxPaneSelection([entries[0]!, entries[2]!], null, view)).toBe("");
+    expect(initialTmuxPaneSelection(entries, "%3", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("");
+    expect(initialTmuxPaneSelection([], "%3", view)).toBe("");
   });
 });

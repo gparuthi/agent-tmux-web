@@ -101,6 +101,8 @@ import {
 } from "./tmuxSessionTarget.js";
 import {
   filterTmuxAgentPanes,
+  initialTmuxPaneSelection,
+  LAST_TMUX_PANE_STORAGE_KEY,
   markTmuxPanesViewed,
   nextTmuxRailPaneAfter,
   parseTmuxPaneViews,
@@ -488,7 +490,12 @@ export function App() {
     }
     const result = await api<{ data: TmuxSessionDto[] }>(`/api/tmux/sessions?clientId=${encodeURIComponent(BROWSER_CLIENT_ID)}`);
     setTmuxSessions(result.data);
-    setSelectedTmux((current) => current || defaultTmuxPaneSelection(result.data));
+    // Storage, not state: this callback is stable, and every rail preference is written through.
+    setSelectedTmux((current) => current || initialTmuxPaneSelection(result.data, readStoredValue(LAST_TMUX_PANE_STORAGE_KEY), {
+      pinnedNames: readInitialPinnedTmuxSessionNames(),
+      preferences: readInitialTmuxSessionGroupPreferences(),
+      showAll: readInitialShowAllTmuxPanes()
+    }));
   }, []);
 
   const captureTmux = useCallback(async (session: string, options: TmuxCaptureOptions): Promise<boolean> => {
@@ -611,6 +618,9 @@ export function App() {
 
   useEffect(() => {
     selectedTmuxRef.current = selectedTmux;
+    if (selectedTmux && !demoMode) {
+      writeStoredValue(LAST_TMUX_PANE_STORAGE_KEY, selectedTmux);
+    }
   }, [selectedTmux]);
 
   // Arriving at or leaving a pane marks its output seen, so the rail dims it like tmux's activity flag.

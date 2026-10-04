@@ -6,6 +6,7 @@ export const MAX_STORED_TMUX_SESSION_GROUPS = 64;
 export const TMUX_PANE_VIEWS_STORAGE_KEY = "agent-tmux-web.pane-views";
 export const MAX_STORED_TMUX_PANE_VIEWS = 200;
 export const SHOW_ALL_TMUX_PANES_STORAGE_KEY = "agent-tmux-web.show-all-panes";
+export const LAST_TMUX_PANE_STORAGE_KEY = "agent-tmux-web.last-pane";
 
 // When this browser last looked at each pane; panes never viewed here fall back to baselineMs.
 export type TmuxPaneViews = {
@@ -85,6 +86,25 @@ export function visibleTmuxRailPanes(
     ...pinned,
     ...groups.flatMap((group) => group.session !== null && isTmuxSessionGroupCollapsed(preferences, group.session) ? [] : group.panes)
   ];
+}
+
+export type TmuxRailView = {
+  pinnedNames: string[];
+  preferences: TmuxSessionGroupPreferences;
+  showAll: boolean;
+};
+
+// The pane to open on load: the last one this browser selected if the rail still shows it, else the
+// rail's first row. "_" sessions (_hidden) only count when the owner expanded them; never by default.
+export function initialTmuxPaneSelection(entries: TmuxSessionDto[], stored: string | null, view: TmuxRailView): string {
+  const visible = visibleTmuxRailPanes(filterTmuxAgentPanes(entries, view.showAll, ""), view.pinnedNames, view.preferences);
+  const underscored = (entry: TmuxSessionDto) => (entry.session ?? "").startsWith("_");
+  const expanded = (session: string | undefined) => view.preferences.some(([name, collapsed]) => name === session && !collapsed);
+  const restored = stored ? visible.find((entry) => entry.name === stored) : undefined;
+  if (restored && (!underscored(restored) || expanded(restored.session))) {
+    return restored.name;
+  }
+  return visible.find((entry) => !underscored(entry))?.name ?? "";
 }
 
 // After a pane leaves its place (e.g. its window was snoozed): the next rail row that stayed put,
