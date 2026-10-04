@@ -27,4 +27,13 @@ describe("tmux notification payloads", () => {
       tmuxSession: "codex"
     });
   });
+
+  it("shows a readable pane name while keeping the pane id as the launch target", () => {
+    expect(buildTmuxTransitionNotification("%38", "Claude", "idle", "main:1.1")).toEqual({
+      title: "main:1.1 is idle",
+      body: "Claude is idle in main:1.1.",
+      tag: "agent-tmux-web-%38",
+      tmuxSession: "%38"
+    });
+  });
 });

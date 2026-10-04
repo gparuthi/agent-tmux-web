@@ -2,8 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBrowserRawTerminalPolicy,
+  buildScriptArgsForShellCommand,
   buildScriptArgsForTmuxAttach,
+  buildScriptSpawn,
   buildTmuxAttachShellCommand,
+  buildTmuxGroupedAttachShellCommand,
   buildTmuxCaptureSizeFromClientDimensions,
   buildTmuxDisplayWindowSizeArgs,
   buildTmuxRestoreManualSizeArgs,
@@ -11,17 +14,18 @@ import {
   buildTmuxSetWindowSizeOptionArgs,
   buildTmuxShowWindowSizeOptionArgs,
   isSameTerminalSize,
+  isTmuxRawSessionName,
   normalizeTerminalSize
 } from "../terminal.js";
 
 describe("browser tmux terminal helpers", () => {
   it("builds util-linux script args for attaching to tmux inside a pty", () => {
-    expect(buildScriptArgsForTmuxAttach("codex-ui")).toEqual([
+    expect(buildScriptArgsForTmuxAttach("codex-ui", {}, undefined, "linux")).toEqual([
       "-qfec",
       "tmux attach-session -t codex-ui",
       "/dev/null"
     ]);
-    expect(buildScriptArgsForTmuxAttach("codex-ui", { ignoreSize: true })).toEqual([
+    expect(buildScriptArgsForTmuxAttach("codex-ui", { ignoreSize: true }, undefined, "linux")).toEqual([
       "-qfec",
       "tmux attach-session -f ignore-size -t codex-ui",
       "/dev/null"
@@ -29,7 +33,7 @@ describe("browser tmux terminal helpers", () => {
   });
 
   it("sets the script pty size before attaching a browser raw terminal", () => {
-    expect(buildScriptArgsForTmuxAttach("codex-ui", {}, { cols: 132, rows: 36 })).toEqual([
+    expect(buildScriptArgsForTmuxAttach("codex-ui", {}, { cols: 132, rows: 36 }, "linux")).toEqual([
       "-qfec",
       "stty cols 132 rows 36; tmux attach-session -t codex-ui",
       "/dev/null"
@@ -42,11 +46,76 @@ describe("browser tmux terminal helpers", () => {
     expect(policy.attachOptions).toEqual({});
     expect(policy.resizeTmuxWindowOnAttach).toBe(true);
     expect(policy.resizeTmuxWindow).toBe(true);
-    expect(buildScriptArgsForTmuxAttach("codex-ui", policy.attachOptions)).toEqual([
+    expect(buildScriptArgsForTmuxAttach("codex-ui", policy.attachOptions, undefined, "linux")).toEqual([
       "-qfec",
       "tmux attach-session -t codex-ui",
       "/dev/null"
     ]);
+  });
+
+  it("uses BSD script argument order on macOS", () => {
+    expect(buildScriptArgsForTmuxAttach("codex-ui", {}, { cols: 132, rows: 36 }, "darwin")).toEqual([
+      "-qF",
+      "/dev/null",
+      "sh",
+      "-c",
+      "stty cols 132 rows 36; tmux attach-session -t codex-ui"
+    ]);
+    expect(buildScriptArgsForShellCommand("true", "linux")).toEqual(["-qfec", "true", "/dev/null"]);
+  });
+
+  it("spawns util-linux script directly and pipes BSD script stdin through bash", () => {
+    expect(buildScriptSpawn("tmux ls", "linux")).toEqual({ file: "script", args: ["-qfec", "tmux ls", "/dev/null"] });
+    expect(buildScriptSpawn("tmux ls", "darwin")).toEqual({
+      file: "/bin/bash",
+      args: ["-c", 'exec script "$@" < <(exec cat)', "atw-script", "-qF", "/dev/null", "sh", "-c", "tmux ls"]
+    });
+  });
+
+  it("keeps the browser off windows that another client is viewing", () => {
+    const policy = buildBrowserRawTerminalPolicy({ hasAttachedClients: true, windowViewedByOtherClients: true });
+
+    expect(policy.attachOptions).toEqual({ ignoreSize: true });
+    expect(policy.resizeTmuxWindowOnAttach).toBe(false);
+    expect(policy.resizeTmuxWindow).toBe(false);
+  });
+
+  it("attaches raw terminals through a grouped session focused on one pane", () => {
+    const target = { baseSession: "main", rawSession: "atw-raw-1a2b", windowId: "@16", paneId: "%38" };
+
+    expect(buildTmuxGroupedAttachShellCommand(target)).toBe(
+      "tmux new-session -f active-pane -t main -s atw-raw-1a2b ';' "
+      + "set-option -t atw-raw-1a2b destroy-unattached on ';' "
+      + "select-window -t atw-raw-1a2b:@16 ';' "
+      + "select-pane -t '%38'"
+    );
+    expect(buildTmuxGroupedAttachShellCommand(target, { ignoreSize: true }, { cols: 100, rows: 30 })).toBe(
+      "stty cols 100 rows 30; tmux new-session -f active-pane,ignore-size -t main -s atw-raw-1a2b ';' "
+      + "set-option -t atw-raw-1a2b destroy-unattached on ';' "
+      + "select-window -t atw-raw-1a2b:@16 ';' "
+      + "select-pane -t '%38'"
+    );
+  });
+
+  it("routes grouped attaches for shimmed container sessions with in-container ids", () => {
+    expect(buildTmuxGroupedAttachShellCommand({
+      baseSession: "dk--box--main",
+      rawSession: "atw-raw-ff00",
+      windowId: "@2",
+      paneId: "%5"
+    })).toBe(
+      "tmux new-session -f active-pane -t dk--box--main -s atw-raw-ff00 ';' "
+      + "set-option -t atw-raw-ff00 destroy-unattached on ';' "
+      + "select-window -t atw-raw-ff00:@2 ';' "
+      + "select-pane -t '%5'"
+    );
+  });
+
+  it("recognizes atw's grouped raw sessions, including shim-prefixed ones", () => {
+    expect(isTmuxRawSessionName("atw-raw-1a2b")).toBe(true);
+    expect(isTmuxRawSessionName("dk--box--atw-raw-1a2b")).toBe(true);
+    expect(isTmuxRawSessionName("main")).toBe(false);
+    expect(isTmuxRawSessionName("my-atw-raw-notes")).toBe(false);
   });
 
   it("shell-quotes tmux session names before embedding them in script commands", () => {

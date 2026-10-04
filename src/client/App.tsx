@@ -37,7 +37,7 @@ import {
   Wrench,
   X
 } from "lucide-react";
-import { ClipboardEvent, FormEvent, KeyboardEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ClipboardEvent, FormEvent, Fragment, KeyboardEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { TMUX_CAPTURE_HISTORY_LINES, type AppStatus, type CodexModel, type CodexSkill, type TmuxCaptureDto, type TmuxSessionDto, type TmuxToolDto, type TmuxWatchEvent, type UploadedFileDto } from "../shared/api.js";
 import { describeThreadItem, type UiEventDescription } from "../shared/codexEvents.js";
@@ -85,12 +85,20 @@ import {
 } from "./tmuxToolPreferences.js";
 import { buildTmuxTransitionNotification } from "./tmuxNotifications.js";
 import {
+  defaultTmuxPaneSelection,
+  findTmuxPane,
+  findTmuxPaneForSession,
+  formatTmuxStatusText,
   normalizeRequestedTmuxSession,
   orderTmuxSessionsByPins,
   parsePinnedTmuxSessionNames,
   PINNED_TMUX_SESSIONS_STORAGE_KEY,
   readRequestedTmuxSession,
   removeRequestedTmuxSession,
+  tmuxPaneDisplayName,
+  tmuxPaneRowLabel,
+  tmuxPaneShortName,
+  tmuxSessionGroupHeader,
   togglePinnedTmuxSessionName
 } from "./tmuxSessionTarget.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
@@ -352,6 +360,8 @@ export function App() {
   const forceTmuxScrollBottomRef = useRef(false);
   const tmuxScrollSnapshotRef = useRef<TmuxScrollSnapshot | null>(null);
   const selectedTmuxRef = useRef(selectedTmux);
+  const tmuxSessionsRef = useRef(tmuxSessions);
+  tmuxSessionsRef.current = tmuxSessions;
   const tmuxViewModeRef = useRef(tmuxViewMode);
   const terminalActiveRef = useRef(terminalActive);
   const tmuxCaptureRequestIdRef = useRef(0);
@@ -400,6 +410,7 @@ export function App() {
     () => orderTmuxSessionsByPins(tmuxSessions, pinnedTmuxSessionNames),
     [pinnedTmuxSessionNames, tmuxSessions]
   );
+  const selectedTmuxEntry = useMemo(() => findTmuxPane(tmuxSessions, selectedTmux), [selectedTmux, tmuxSessions]);
   const customTmuxToolIds = useMemo(() => new Set(customTmuxTools.map((tool) => tool.id)), [customTmuxTools]);
   const currentTmuxTool = useMemo(
     () => allTmuxTools.find((tool) => tool.id === selectedTmuxTool) ?? null,
@@ -462,7 +473,7 @@ export function App() {
     }
     const result = await api<{ data: TmuxSessionDto[] }>(`/api/tmux/sessions?clientId=${encodeURIComponent(BROWSER_CLIENT_ID)}`);
     setTmuxSessions(result.data);
-    setSelectedTmux((current) => current || result.data.find((session) => session.attached)?.name || result.data[0]?.name || "");
+    setSelectedTmux((current) => current || defaultTmuxPaneSelection(result.data));
   }, []);
 
   const loadTmuxTools = useCallback(async () => {
@@ -675,7 +686,7 @@ export function App() {
         for (const event of pending) {
           cursor = Math.max(cursor, event.id);
           if (canShowWebSocketTaskNotifications()) {
-            showTmuxNotification(event);
+            showTmuxNotification(event, tmuxNotificationDisplayName(event.session));
           }
         }
         tmuxNotificationCursorRef.current = cursor;
@@ -1609,7 +1620,12 @@ export function App() {
       return;
     }
     tmuxNotificationCursorRef.current = event.id;
-    showTmuxNotification(event);
+    showTmuxNotification(event, tmuxNotificationDisplayName(event.session));
+  }
+
+  function tmuxNotificationDisplayName(target: string): string | undefined {
+    const entry = findTmuxPane(tmuxSessionsRef.current, target);
+    return entry ? tmuxPaneShortName(entry) : undefined;
   }
 
   function sendRawTerminalData(data: string) {
@@ -1656,12 +1672,14 @@ export function App() {
       body: JSON.stringify({ name: newTmuxName, cwd })
     });
     setTmuxSessions(result.data);
-    selectTmuxSession(sessionName);
+    selectTmuxSession(findTmuxPaneForSession(result.data, sessionName)?.name ?? sessionName);
   }
 
   async function destroySession() {
     const targetSession = selectedTmux;
-    if (!targetSession || !window.confirm(`Destroy tmux session "${targetSession}"?`)) {
+    // Destroy kills the whole tmux session that owns the selected pane, never a single pane.
+    const ownerSession = findTmuxPane(tmuxSessions, targetSession)?.session ?? targetSession;
+    if (!targetSession || !window.confirm(`Destroy tmux session "${ownerSession}" and all its panes?`)) {
       return;
     }
 
@@ -1675,13 +1693,13 @@ export function App() {
 
     const result = await api<{ data: TmuxSessionDto[] }>("/api/tmux/destroy", {
       method: "POST",
-      body: JSON.stringify({ session: targetSession })
+      body: JSON.stringify({ session: ownerSession })
     });
     setTmuxSessions(result.data);
     if (selectedTmuxRef.current !== targetSession) {
       return;
     }
-    const nextSession = result.data.find((session) => session.attached) ?? result.data[0] ?? null;
+    const nextSession = findTmuxPane(result.data, defaultTmuxPaneSelection(result.data)) ?? null;
     applyDestroyedSessionReplacement(nextSession);
   }
 
@@ -2300,7 +2318,7 @@ export function App() {
               <EnvironmentBadge environment={status?.environment} />
             </div>
             <button className="tmux-session-menu-button" type="button" onClick={() => setTmuxMenuOpen((current) => !current)}>
-              <span>{selectedTmux || "no session"}</span>
+              <span>{selectedTmuxEntry ? tmuxPaneShortName(selectedTmuxEntry) : selectedTmux || "no session"}</span>
               <Menu size={15} />
             </button>
           </div>
@@ -2388,7 +2406,7 @@ export function App() {
             >
               <RefreshCw size={15} /> <span>Refresh</span>
             </button>
-            <span className="tmux-terminal-status">{terminalStatus || selectedTmux || "no session selected"}</span>
+            <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
             <button
               aria-label={tmuxNotificationsEnabled ? "Disable browser notifications" : "Enable browser notifications"}
               className={`tmux-notify-button ${tmuxNotificationsEnabled ? "active" : ""}`}
@@ -2404,42 +2422,46 @@ export function App() {
           <div className={tmuxMenuOpen ? "tmux-menu open" : "tmux-menu"}>
             <div className="tmux-rail-section-title">Sessions</div>
             <div className="tmux-sessions">
-              {orderedTmuxSessions.map((session) => {
+              {orderedTmuxSessions.map((session, index) => {
                 const sessionStatus = tmuxStatusForSession(session);
                 const pinned = pinnedTmuxSessionNames.includes(session.name);
                 const viewerCount = session.viewerCount ?? 0;
+                const groupHeader = tmuxSessionGroupHeader(orderedTmuxSessions, index);
                 return (
-                  <div className={`tmux-session-row ${selectedTmux === session.name ? "active" : ""}`} key={session.name}>
-                    <button
-                      className="tmux-session-select"
-                      title={`${session.name}: ${sessionStatus.title}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
-                      type="button"
-                      onClick={() => selectTmuxSession(session.name)}
-                    >
-                      <span
-                        aria-label={`${sessionStatus.title} status`}
-                        className={`tmux-session-status-dot ${sessionStatus.health}`}
-                        title={sessionStatus.title}
-                      />
-                      <span className="tmux-session-name">{session.name}</span>
-                      {viewerCount > 0 && (
-                        <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>
-                          <Eye aria-hidden="true" size={14} />
-                          {viewerCount > 1 && <span>{viewerCount}</span>}
-                        </span>
-                      )}
-                    </button>
-                    <button
-                      aria-label={pinned ? `Unpin ${session.name}` : `Pin ${session.name}`}
-                      aria-pressed={pinned}
-                      className={`tmux-session-pin ${pinned ? "active" : ""}`}
-                      title={pinned ? "Unpin session" : "Pin session to top"}
-                      type="button"
-                      onClick={() => toggleTmuxSessionPin(session.name)}
-                    >
-                      <Pin aria-hidden="true" fill={pinned ? "currentColor" : "none"} size={13} />
-                    </button>
-                  </div>
+                  <Fragment key={session.name}>
+                    {groupHeader && <div className="tmux-session-group-title">{groupHeader}</div>}
+                    <div className={`tmux-session-row ${selectedTmux === session.name ? "active" : ""}`}>
+                      <button
+                        className="tmux-session-select"
+                        title={`${tmuxPaneDisplayName(session)}: ${sessionStatus.title}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
+                        type="button"
+                        onClick={() => selectTmuxSession(session.name)}
+                      >
+                        <span
+                          aria-label={`${sessionStatus.title} status`}
+                          className={`tmux-session-status-dot ${sessionStatus.health}`}
+                          title={sessionStatus.title}
+                        />
+                        <span className="tmux-session-name">{tmuxPaneRowLabel(session)}</span>
+                        {viewerCount > 0 && (
+                          <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>
+                            <Eye aria-hidden="true" size={14} />
+                            {viewerCount > 1 && <span>{viewerCount}</span>}
+                          </span>
+                        )}
+                      </button>
+                      <button
+                        aria-label={pinned ? `Unpin ${tmuxPaneShortName(session)}` : `Pin ${tmuxPaneShortName(session)}`}
+                        aria-pressed={pinned}
+                        className={`tmux-session-pin ${pinned ? "active" : ""}`}
+                        title={pinned ? "Unpin pane" : "Pin pane to top"}
+                        type="button"
+                        onClick={() => toggleTmuxSessionPin(session.name)}
+                      >
+                        <Pin aria-hidden="true" fill={pinned ? "currentColor" : "none"} size={13} />
+                      </button>
+                    </div>
+                  </Fragment>
                 );
               })}
             </div>
@@ -2921,8 +2943,8 @@ function writeTmuxNotificationPreference(enabled: boolean) {
   }
 }
 
-function showTmuxNotification(event: TmuxWatchEvent) {
-  const notification = buildTmuxTransitionNotification(event.session, event.label, event.state);
+function showTmuxNotification(event: TmuxWatchEvent, displayName?: string) {
+  const notification = buildTmuxTransitionNotification(event.session, event.label, event.state, displayName);
   showAgentNotification(
     notification.title,
     notification.body,

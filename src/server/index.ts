@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -14,7 +14,8 @@ import { CodexBridge } from "./codexBridge.js";
 import {
   buildBrowserRawTerminalPolicy,
   buildTmuxCaptureSizeFromClientDimensions,
-  buildScriptArgsForTmuxAttach,
+  buildScriptSpawn,
+  buildTmuxGroupedAttachShellCommand,
   buildTmuxDisplayWindowSizeArgs,
   buildTmuxResizeWindowArgs,
   buildTmuxRestoreWindowStateCommandSequence,
@@ -22,6 +23,7 @@ import {
   isSameTerminalSize,
   normalizeTerminalSize,
   parseTmuxWindowSize,
+  TMUX_RAW_SESSION_PREFIX,
   type TerminalSize,
   type TmuxWindowState
 } from "./terminal.js";
@@ -36,12 +38,18 @@ import {
   fitTmuxCaptureSizeForPane,
   inspectTmuxPane,
   interruptTmuxPane,
+  killTmuxSessionQuietly,
+  listOrphanedTmuxRawSessions,
   listTmuxSessions,
   listTmuxTools,
   openCodexInTmux,
   openTmuxTool,
   readTmuxHarnessStatuses,
+  readTmuxViewerCounts,
+  resolveTmuxPaneEntry,
+  resolveTmuxSessionName,
   sendTmuxText,
+  splitTmuxPaneTarget,
   type TmuxInterruptKey,
   type TmuxSubmitKey
 } from "./tmux.js";
@@ -73,6 +81,8 @@ const server = http.createServer(app);
 const bridge = new CodexBridge({ port: codexAppServerPort });
 const sockets = new Set<WebSocket>();
 const rawTerminalClients = new Map<string, Map<string, number>>();
+// Grouped raw sessions by routed target, with the base session they join and a cleanup hook.
+const rawTerminalSessions = new Map<string, { baseSession: string; close: () => void }>();
 const recentEvents: unknown[] = [];
 const watchPollers = new Map<string, {
   id: string;
@@ -285,9 +295,23 @@ app.post("/api/tmux/create", asyncHandler(async (req, res) => {
 
 app.post("/api/tmux/destroy", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
-  const session = requireString(body.session, "session");
+  const requested = requireString(body.session, "session");
+  const entries = await listTmuxSessions();
+  // Destroy stays session-level: a pane target resolves to the session that owns it.
+  const session = resolveTmuxSessionName(entries, requested);
+  for (const [rawTarget, raw] of rawTerminalSessions) {
+    if (raw.baseSession === session) {
+      raw.close();
+      await killTmuxSessionQuietly(rawTarget);
+    }
+  }
   await destroyTmuxSession(session);
-  tmuxWatch.cancelWatch(session);
+  tmuxWatch.cancelWatch(requested);
+  for (const entry of entries) {
+    if (entry.session === session) {
+      tmuxWatch.cancelWatch(entry.name);
+    }
+  }
   res.json({
     data: await listTmuxSessionsWithStatus()
   });
@@ -391,6 +415,7 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       panePid: _panePid,
       currentPath: _currentPath,
       paneTitle: _paneTitle,
+      windowId: _windowId,
       ...sessionData
     } = session;
     const output = await captureTmuxVisiblePane(session.name).catch(() => "");
@@ -403,7 +428,8 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
     const status = mergeTmuxSessionStatus(visibleStatus, harnessStatus);
     return {
       ...sessionData,
-      viewerCount: Math.max(0, clientCount - rawTerminalClientCount(excludedBrowserClientId, session.name)),
+      // Raw browsers attach through grouped sessions, so add other browsers' raw views explicitly.
+      viewerCount: Math.max(0, clientCount + totalRawTerminalClientCount(session.name) - rawTerminalClientCount(excludedBrowserClientId, session.name)),
       status
     };
   }));
@@ -411,6 +437,14 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
 
 function rawTerminalClientCount(browserClientId: string | null | undefined, session: string): number {
   return browserClientId ? rawTerminalClients.get(browserClientId)?.get(session) ?? 0 : 0;
+}
+
+function totalRawTerminalClientCount(session: string): number {
+  let total = 0;
+  for (const sessions of rawTerminalClients.values()) {
+    total += sessions.get(session) ?? 0;
+  }
+  return total;
 }
 
 function updateRawTerminalClientCount(browserClientId: string, session: string, delta: 1 | -1): void {
@@ -495,12 +529,22 @@ tmuxWss.on("connection", async (socket, req) => {
     return;
   }
 
-  const session = stringOrNull(url.searchParams.get("session"));
-  if (!session) {
+  const requested = stringOrNull(url.searchParams.get("session"));
+  if (!requested) {
     sendTerminalMessage(socket, { type: "error", message: "Missing tmux session" });
     socket.close(1008, "Missing tmux session");
     return;
   }
+  const entry = resolveTmuxPaneEntry(await listTmuxSessions().catch(() => []), requested);
+  const paneTarget = entry ? splitTmuxPaneTarget(entry.name) : null;
+  if (!entry?.session || !paneTarget) {
+    sendTerminalMessage(socket, { type: "error", message: `Unknown tmux pane ${requested}` });
+    socket.close(1008, "Unknown tmux pane");
+    return;
+  }
+  const session = entry.name;
+  const rawSession = `${TMUX_RAW_SESSION_PREFIX}${randomBytes(4).toString("hex")}`;
+  const rawTarget = `${paneTarget.routingPrefix}${rawSession}`;
   const browserClientId = stringOrNull(url.searchParams.get("clientId"));
   if (browserClientId) {
     updateRawTerminalClientCount(browserClientId, session, 1);
@@ -508,18 +552,24 @@ tmuxWss.on("connection", async (socket, req) => {
   }
 
   const size = normalizeTerminalSize(url.searchParams.get("cols"), url.searchParams.get("rows"));
-  const initialWindowState = await readTmuxWindowState(session).catch(() => null);
-  const hasAttachedClients = await hasAttachedTmuxClients(session).catch(() => false);
-  const rawTerminalPolicy = buildBrowserRawTerminalPolicy({ hasAttachedClients });
-  let restoredWindowState = false;
-  const restoreWindowState = () => {
-    if (restoredWindowState) {
+  const viewers = await readTmuxViewerCounts(session).catch(() => ({ sessionClients: 0, windowClients: 0 }));
+  const rawTerminalPolicy = buildBrowserRawTerminalPolicy({
+    hasAttachedClients: viewers.sessionClients > 0,
+    windowViewedByOtherClients: viewers.windowClients > 0
+  });
+  const initialWindowState = rawTerminalPolicy.resizeTmuxWindowOnAttach
+    ? await readTmuxWindowState(session).catch(() => null)
+    : null;
+  let cleanedUp = false;
+  const cleanup = async () => {
+    if (cleanedUp) {
       return;
     }
-    restoredWindowState = true;
-    restoreTmuxWindowState(session, initialWindowState).catch(() => {
-      // Best-effort cleanup; the tmux session should not remain manually sized.
-    });
+    cleanedUp = true;
+    rawTerminalSessions.delete(rawTarget);
+    await killTmuxSessionQuietly(rawTarget);
+    // Best-effort cleanup; the tmux window should not remain manually sized.
+    await restoreTmuxWindowState(session, initialWindowState).catch(() => undefined);
   };
 
   if (rawTerminalPolicy.resizeTmuxWindowOnAttach) {
@@ -527,11 +577,23 @@ tmuxWss.on("connection", async (socket, req) => {
       // Best-effort initial resize; the browser PTY is still sized before attach.
     });
   }
+  if (socket.readyState !== socket.OPEN) {
+    await cleanup();
+    return;
+  }
 
-  const child = spawn("script", buildScriptArgsForTmuxAttach(session, rawTerminalPolicy.attachOptions, size), {
+  const scriptSpawn = buildScriptSpawn(buildTmuxGroupedAttachShellCommand({
+    baseSession: entry.session,
+    rawSession,
+    windowId: entry.windowId,
+    paneId: paneTarget.paneId
+  }, rawTerminalPolicy.attachOptions, size));
+  // tmux refuses to attach from inside a pane, and the server may have been started from one.
+  const { TMUX: _tmux, TMUX_PANE: _tmuxPane, ...parentEnv } = process.env;
+  const child = spawn(scriptSpawn.file, scriptSpawn.args, {
     cwd: process.env.HOME ?? process.cwd(),
     env: {
-      ...process.env,
+      ...parentEnv,
       TERM: "xterm-256color",
       COLORTERM: "truecolor",
       COLUMNS: String(size.cols),
@@ -539,8 +601,16 @@ tmuxWss.on("connection", async (socket, req) => {
     },
     stdio: ["pipe", "pipe", "pipe"]
   });
+  rawTerminalSessions.set(rawTarget, {
+    baseSession: entry.session,
+    close: () => {
+      if (socket.readyState === socket.OPEN) {
+        socket.close(1000, "tmux session destroyed");
+      }
+    }
+  });
 
-  sendTerminalMessage(socket, { type: "status", message: `live terminal for ${session}` });
+  sendTerminalMessage(socket, { type: "status", message: `live terminal for ${entry.label ?? session}` });
 
   child.stdout.on("data", (chunk: Buffer) => {
     sendTerminalMessage(socket, { type: "output", data: chunk.toString("utf8") });
@@ -552,7 +622,9 @@ tmuxWss.on("connection", async (socket, req) => {
     sendTerminalMessage(socket, { type: "error", message: error.message });
   });
   child.on("exit", (code, signal) => {
-    restoreWindowState();
+    // Lets the darwin stdin relay (cat) see EOF and exit.
+    child.stdin.destroy();
+    void cleanup();
     sendTerminalMessage(socket, { type: "status", message: `tmux detached (${code ?? signal ?? "closed"})` });
     if (socket.readyState === socket.OPEN) {
       socket.close(1000, "tmux detached");
@@ -575,15 +647,18 @@ tmuxWss.on("connection", async (socket, req) => {
 
     if (message.type === "resize" && rawTerminalPolicy.resizeTmuxWindow) {
       const nextSize = normalizeTerminalSize(message.cols, message.rows);
-      resizeTmuxWindowIfNeeded(session, nextSize).catch(() => {
-        // Best-effort resize; the tmux attachment remains usable if this fails.
-      });
+      readTmuxViewerCounts(session)
+        // Our own client counts as one viewer; skip if a desktop client switched to this window.
+        .then(({ windowClients }) => windowClients <= 1 ? resizeTmuxWindowIfNeeded(session, nextSize) : false)
+        .catch(() => {
+          // Best-effort resize; the tmux attachment remains usable if this fails.
+        });
     }
   });
 
   socket.on("close", () => {
-    restoreWindowState();
-    closeTerminalChild(child);
+    // Killing the grouped session detaches the browser client, so no prefix keys are sent.
+    void cleanup().finally(() => closeTerminalChild(child));
   });
 });
 
@@ -621,6 +696,7 @@ bridge.on("log", (line) => {
 server.listen(port, bindHost, async () => {
   console.log(`agent-tmux-web listening on http://${bindHost}:${port}`);
   startUploadCleanup();
+  void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
   if (codexAppServerAutostart) {
     bridge.start().catch((error: unknown) => {
@@ -628,6 +704,13 @@ server.listen(port, bindHost, async () => {
     });
   }
 });
+
+async function sweepOrphanedRawSessions(): Promise<void> {
+  // Raw sessions left by a crashed server have no clients; destroy-unattached only fires on detach.
+  for (const rawTarget of await listOrphanedTmuxRawSessions()) {
+    await killTmuxSessionQuietly(rawTarget);
+  }
+}
 
 function asyncHandler(handler: (req: Request, res: Response, next: NextFunction) => Promise<void>) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -673,7 +756,6 @@ function closeTerminalChild(child: ChildProcessWithoutNullStreams): void {
   }
 
   if (child.stdin.writable) {
-    child.stdin.write("\x02d");
     child.stdin.end();
   }
 
@@ -681,7 +763,7 @@ function closeTerminalChild(child: ChildProcessWithoutNullStreams): void {
     if (child.exitCode === null && child.signalCode === null) {
       child.kill("SIGTERM");
     }
-  }, 100);
+  }, 500);
   timer.unref();
 }
 
@@ -720,9 +802,9 @@ async function resizeTmuxWindowIfNeeded(session: string, nextSize: TerminalSize)
   return true;
 }
 
-async function hasAttachedTmuxClients(session: string): Promise<boolean> {
-  const { stdout } = await execFileAsync("tmux", ["list-clients", "-t", session, "-F", "#{client_tty}"]);
-  return stdout.trim().length > 0;
+async function hasAttachedTmuxClients(target: string): Promise<boolean> {
+  const { sessionClients, windowClients } = await readTmuxViewerCounts(target);
+  return sessionClients > 0 || windowClients > 0;
 }
 
 async function restoreTmuxWindowState(session: string, state: TmuxWindowState | null): Promise<void> {

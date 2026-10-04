@@ -20,7 +20,15 @@ export type CodexSkill = {
 };
 
 export type TmuxSessionDto = {
+  // tmux target for every API call: a pane id like "%12" (with any shim prefix), or a session name.
   name: string;
+  session?: string;
+  paneId?: string;
+  windowIndex?: number;
+  paneIndex?: number;
+  windowActive?: boolean;
+  paneActive?: boolean;
+  label?: string;
   windows: number;
   created: string;
   createdAtMs?: number;

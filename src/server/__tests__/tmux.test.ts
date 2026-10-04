@@ -1,10 +1,10 @@
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
 import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   buildCodexTmuxCommand,
@@ -13,6 +13,20 @@ import {
   buildTmuxCreateSessionArgs,
   buildTmuxCapturePaneArgs,
   buildTmuxKillSessionArgs,
+  buildTmuxListPanesArgs,
+  buildTmuxPaneLabel,
+  buildTmuxViewerCountArgs,
+  captureTmuxPane,
+  displayTmuxPaneCommand,
+  listTmuxSessions,
+  parseTmuxPanes,
+  parseTmuxViewerCounts,
+  resolveTmuxPaneEntry,
+  resolveTmuxSessionName,
+  sendTmuxText,
+  shortenTmuxPanePath,
+  splitTmuxPaneTarget,
+  TMUX_LIST_PANES_FORMAT,
   buildTmuxInterruptKeysArgs,
   buildTmuxPaneInModeArgs,
   buildTmuxSubmitKeysArgs,
@@ -591,5 +605,206 @@ describe("tmux command builders", () => {
         output: "Session title\nContext\n25,467 tokens\n• OpenCode 1.18.3"
       }
     });
+  });
+});
+
+function paneLine(fields: {
+  session: string;
+  pane: string;
+  window?: string;
+  windowIndex: number;
+  paneIndex: number;
+  windowActive?: boolean;
+  paneActive?: boolean;
+  attached?: number;
+  command?: string;
+  path?: string;
+  title?: string;
+}): string {
+  return [
+    fields.session,
+    fields.pane,
+    fields.window ?? `@${fields.windowIndex}`,
+    String(fields.windowIndex),
+    String(fields.paneIndex),
+    fields.windowActive ? "1" : "0",
+    fields.paneActive ? "1" : "0",
+    "4",
+    "1778630000",
+    String(fields.attached ?? 0),
+    "1778630100",
+    fields.command ?? "zsh",
+    "4242",
+    fields.path ?? "/home/me/work/app",
+    fields.title ?? "host"
+  ].join("\t");
+}
+
+describe("tmux pane listing", () => {
+  it("lists every pane across sessions with session-level metadata", () => {
+    expect(buildTmuxListPanesArgs()).toEqual(["list-panes", "-a", "-F", TMUX_LIST_PANES_FORMAT]);
+    expect(TMUX_LIST_PANES_FORMAT.split("\t").slice(0, 2)).toEqual(["#{session_name}", "#{pane_id}"]);
+
+    const panes = parseTmuxPanes([
+      paneLine({ session: "main", pane: "%32", windowIndex: 0, paneIndex: 0, paneActive: true, attached: 1, command: "2.1.288" }),
+      paneLine({ session: "main", pane: "%31", windowIndex: 0, paneIndex: 1, attached: 1 }),
+      paneLine({ session: "main", pane: "%20", windowIndex: 1, paneIndex: 0, windowActive: true, paneActive: true, attached: 1, command: "node", path: "/home/me" })
+    ].join("\n"), "/home/me");
+
+    expect(panes.map((pane) => pane.name)).toEqual(["%32", "%31", "%20"]);
+    expect(panes[0]).toMatchObject({
+      name: "%32",
+      session: "main",
+      paneId: "%32",
+      windowId: "@0",
+      windowIndex: 0,
+      paneIndex: 0,
+      windowActive: false,
+      paneActive: true,
+      label: "main:0.0 \u00b7 claude \u00b7 ~/work/app",
+      windows: 4,
+      attached: true,
+      clientCount: 1,
+      panePid: 4242,
+      currentPath: "/home/me/work/app",
+      currentCommand: "2.1.288",
+      paneTitle: "host"
+    });
+    expect(panes[2].label).toBe("main:1.0 \u00b7 node \u00b7 ~");
+  });
+
+  it("sorts by session, window, and pane and skips malformed rows", () => {
+    const panes = parseTmuxPanes([
+      paneLine({ session: "main", pane: "%4", windowIndex: 2, paneIndex: 0 }),
+      "garbage",
+      paneLine({ session: "gp", pane: "%7", windowIndex: 0, paneIndex: 1 }),
+      paneLine({ session: "main", pane: "%3", windowIndex: 1, paneIndex: 1 }),
+      paneLine({ session: "gp", pane: "%1", windowIndex: 0, paneIndex: 0 }),
+      paneLine({ session: "main", pane: "not-a-pane", windowIndex: 0, paneIndex: 0 })
+    ].join("\n"));
+
+    expect(panes.map((pane) => `${pane.session}:${pane.windowIndex}.${pane.paneIndex}`)).toEqual([
+      "gp:0.0",
+      "gp:0.1",
+      "main:1.1",
+      "main:2.0"
+    ]);
+  });
+
+  it("hides atw raw sessions and lists grouped panes once", () => {
+    const panes = parseTmuxPanes([
+      paneLine({ session: "atw-raw-1a2b", pane: "%9", windowIndex: 0, paneIndex: 0, attached: 1 }),
+      paneLine({ session: "main", pane: "%9", windowIndex: 0, paneIndex: 0 }),
+      paneLine({ session: "main-mirror", pane: "%9", windowIndex: 0, paneIndex: 0 }),
+      paneLine({ session: "dk--box--atw-raw-ff00", pane: "dk--box--%2", windowIndex: 0, paneIndex: 0 })
+    ].join("\n"));
+
+    expect(panes.map((pane) => [pane.session, pane.name])).toEqual([["main", "%9"]]);
+  });
+
+  it("keeps shim-prefixed container panes routable", () => {
+    const [pane] = parseTmuxPanes(paneLine({ session: "dk--box--work", pane: "dk--box--%5", windowIndex: 1, paneIndex: 2 }));
+
+    expect(pane).toMatchObject({ name: "dk--box--%5", session: "dk--box--work", paneId: "%5" });
+    expect(splitTmuxPaneTarget("dk--box--%5")).toEqual({ routingPrefix: "dk--box--", paneId: "%5" });
+    expect(splitTmuxPaneTarget("%12")).toEqual({ routingPrefix: "", paneId: "%12" });
+    expect(splitTmuxPaneTarget("main")).toBeNull();
+  });
+
+  it("builds readable pane labels", () => {
+    expect(buildTmuxPaneLabel({ session: "main", windowIndex: 1, paneIndex: 0, currentCommand: "codex", currentPath: "/srv/a/b/c/d" }, "/home/me"))
+      .toBe("main:1.0 \u00b7 codex \u00b7 /\u2026/c/d");
+    expect(buildTmuxPaneLabel({ session: "gp", windowIndex: 0, paneIndex: 1 })).toBe("gp:0.1");
+    expect(displayTmuxPaneCommand("2.1.288")).toBe("claude");
+    expect(displayTmuxPaneCommand("pi")).toBe("pi");
+    expect(shortenTmuxPanePath("/home/me/work/playground/x/y", "/home/me")).toBe("~/\u2026/x/y");
+    expect(shortenTmuxPanePath("/home/me/work/playground", "/home/me/")).toBe("~/work/playground");
+    expect(shortenTmuxPanePath("/home/meadow/x", "/home/me")).toBe("/home/meadow/x");
+    expect(shortenTmuxPanePath(undefined, "/home/me")).toBe("");
+  });
+
+  it("resolves pane targets and legacy session names", () => {
+    const panes = parseTmuxPanes([
+      paneLine({ session: "main", pane: "%1", windowIndex: 0, paneIndex: 0, paneActive: true }),
+      paneLine({ session: "main", pane: "%2", windowIndex: 1, paneIndex: 0, windowActive: true }),
+      paneLine({ session: "main", pane: "%3", windowIndex: 1, paneIndex: 1, windowActive: true, paneActive: true })
+    ].join("\n"));
+
+    expect(resolveTmuxPaneEntry(panes, "%2")?.name).toBe("%2");
+    expect(resolveTmuxPaneEntry(panes, "main")?.name).toBe("%3");
+    expect(resolveTmuxPaneEntry(panes, "missing")).toBeNull();
+    expect(resolveTmuxSessionName(panes, "%2")).toBe("main");
+    expect(resolveTmuxSessionName(panes, "other")).toBe("other");
+  });
+
+  it("targets the specific pane for capture, send, submit, and interrupt", () => {
+    expect(buildTmuxCapturePaneArgs("%38", 100)).toEqual(["capture-pane", "-p", "-t", "%38", "-S", "-100"]);
+    expect(buildTmuxSubmitKeysArgs("%38")).toEqual(["send-keys", "-t", "%38", "Enter"]);
+    expect(buildTmuxInterruptKeysArgs("%38", "ctrl-c")).toEqual(["send-keys", "-t", "%38", "C-c"]);
+    expect(buildTmuxPaneInModeArgs("dk--box--%5")).toEqual(["display-message", "-p", "-t", "dk--box--%5", "#{pane_in_mode}"]);
+  });
+
+  it("reads session and window viewer counts for a pane", () => {
+    expect(buildTmuxViewerCountArgs("%38")).toEqual([
+      "display-message",
+      "-p",
+      "-t",
+      "%38",
+      "#{?session_grouped,#{session_group_attached},#{session_attached}} #{window_active_clients}"
+    ]);
+    expect(parseTmuxViewerCounts("2 1\n")).toEqual({ sessionClients: 2, windowClients: 1 });
+    expect(parseTmuxViewerCounts("")).toEqual({ sessionClients: 0, windowClients: 0 });
+  });
+});
+
+const tmuxAvailable = spawnSync("tmux", ["-V"]).status === 0;
+
+describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server", () => {
+  const savedTmuxTmpdir = process.env.TMUX_TMPDIR;
+  const savedTmux = process.env.TMUX;
+  let socketDir = "";
+
+  beforeAll(async () => {
+    // Private socket dir so the test never touches the developer's tmux server.
+    socketDir = await mkdtemp(path.join(tmpdir(), "atw-tmux-"));
+    process.env.TMUX_TMPDIR = socketDir;
+    delete process.env.TMUX;
+    await execFileAsync("tmux", ["new-session", "-d", "-s", "atwtest", "-x", "120", "-y", "40", "sh"]);
+    await execFileAsync("tmux", ["split-window", "-t", "atwtest", "sh"]);
+    await execFileAsync("tmux", ["new-session", "-d", "-t", "atwtest", "-s", "atw-raw-test"]);
+  });
+
+  afterAll(async () => {
+    await execFileAsync("tmux", ["kill-server"]).catch(() => undefined);
+    if (savedTmuxTmpdir === undefined) {
+      delete process.env.TMUX_TMPDIR;
+    } else {
+      process.env.TMUX_TMPDIR = savedTmuxTmpdir;
+    }
+    if (savedTmux !== undefined) {
+      process.env.TMUX = savedTmux;
+    }
+    await rm(socketDir, { recursive: true, force: true });
+  });
+
+  it("lists both panes once and sends only to the non-active pane", async () => {
+    const panes = (await listTmuxSessions()).filter((pane) => pane.session === "atwtest");
+    expect(panes.map((pane) => [pane.windowIndex, pane.paneIndex])).toEqual([[0, 0], [0, 1]]);
+    expect((await listTmuxSessions()).some((pane) => pane.session === "atw-raw-test")).toBe(false);
+
+    const inactive = panes.find((pane) => !pane.paneActive);
+    const active = panes.find((pane) => pane.paneActive);
+    expect(inactive?.name).toMatch(/^%\d+$/);
+    expect(active).toBeDefined();
+
+    await sendTmuxText(inactive!.name, "echo PANE_TARGET_MARK", true, "enter");
+    let inactiveOutput = "";
+    for (let attempt = 0; attempt < 30 && !/^PANE_TARGET_MARK$/m.test(inactiveOutput); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      inactiveOutput = await captureTmuxPane(inactive!.name, 50);
+    }
+
+    expect(inactiveOutput).toMatch(/^PANE_TARGET_MARK$/m);
+    expect(await captureTmuxPane(active!.name, 50)).not.toContain("PANE_TARGET_MARK");
   });
 });

@@ -10,14 +10,23 @@ import {
   type TmuxToolDto
 } from "../shared/api.js";
 import { buildTmuxToolCommand, DEFAULT_TMUX_TOOLS } from "../shared/tmuxTools.js";
-import type { TerminalSize } from "./terminal.js";
+import { isTmuxRawSessionName, type TerminalSize } from "./terminal.js";
 
 export { buildTmuxToolCommand } from "../shared/tmuxTools.js";
 
 const execFileAsync = promisify(execFile);
 
 export type TmuxSession = {
+  // Target for tmux -t: the pane id (%N, plus any shim prefix) for pane rows, the session name for legacy rows.
   name: string;
+  session?: string;
+  paneId?: string;
+  windowId?: string;
+  windowIndex?: number;
+  paneIndex?: number;
+  windowActive?: boolean;
+  paneActive?: boolean;
+  label?: string;
   windows: number;
   created: string;
   createdAtMs?: number;
@@ -348,14 +357,209 @@ export async function destroyTmuxSession(session: string): Promise<TmuxSession[]
   return listTmuxSessions();
 }
 
+export const TMUX_LIST_PANES_FORMAT = [
+  "#{session_name}",
+  "#{pane_id}",
+  "#{window_id}",
+  "#{window_index}",
+  "#{pane_index}",
+  "#{window_active}",
+  "#{pane_active}",
+  "#{session_windows}",
+  "#{session_created}",
+  "#{session_attached}",
+  "#{window_activity}",
+  "#{pane_current_command}",
+  "#{pane_pid}",
+  "#{pane_current_path}",
+  "#{pane_title}"
+].join("\t");
+
+export function buildTmuxListPanesArgs(): string[] {
+  return ["list-panes", "-a", "-F", TMUX_LIST_PANES_FORMAT];
+}
+
+export function parseTmuxPanes(output: string, homeDir: string | undefined = process.env.HOME): TmuxSession[] {
+  const seen = new Set<string>();
+  return output
+    .split(/\r?\n/)
+    .flatMap((line) => {
+      const pane = parseTmuxPaneLine(line, homeDir);
+      // Grouped sessions list the same panes again; keep the first owner and skip atw's own raw sessions.
+      if (!pane || isTmuxRawSessionName(pane.session ?? "") || seen.has(pane.name)) {
+        return [];
+      }
+      seen.add(pane.name);
+      return [pane];
+    })
+    .sort((left, right) => compareStrings(left.session ?? "", right.session ?? "")
+      || (left.windowIndex ?? 0) - (right.windowIndex ?? 0)
+      || (left.paneIndex ?? 0) - (right.paneIndex ?? 0));
+}
+
+function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSession | null {
+  const parts = line.split("\t");
+  if (parts.length < 14) {
+    return null;
+  }
+  const [
+    session,
+    paneTarget,
+    windowId,
+    windowIndexValue,
+    paneIndexValue,
+    windowActive,
+    paneActive,
+    windows,
+    created,
+    attached,
+    activity,
+    currentCommand,
+    panePidValue,
+    currentPath,
+    ...paneTitleParts
+  ] = parts;
+  const paneTitle = paneTitleParts.join("\t");
+  const windowIndex = Number(windowIndexValue);
+  const paneIndex = Number(paneIndexValue);
+  const windowCount = Number(windows);
+  const clientCount = Number(attached);
+  const panePid = Number(panePidValue);
+  const createdAtMs = unixSecondsToMs(created);
+  const activityAtMs = unixSecondsToMs(activity);
+  const target = splitTmuxPaneTarget(paneTarget);
+  if (!session
+    || !target
+    || !Number.isInteger(windowIndex)
+    || !Number.isInteger(paneIndex)
+    || !Number.isFinite(windowCount)
+    || !Number.isFinite(clientCount)
+    || !createdAtMs) {
+    return null;
+  }
+
+  return {
+    name: paneTarget,
+    session,
+    paneId: target.paneId,
+    ...(windowId ? { windowId } : {}),
+    windowIndex,
+    paneIndex,
+    windowActive: windowActive === "1",
+    paneActive: paneActive === "1",
+    label: buildTmuxPaneLabel({ session, windowIndex, paneIndex, currentCommand, currentPath }, homeDir),
+    windows: windowCount,
+    created: new Date(createdAtMs).toISOString(),
+    createdAtMs,
+    attached: clientCount > 0,
+    clientCount: Math.max(0, clientCount),
+    ...(Number.isInteger(panePid) && panePid > 0 ? { panePid } : {}),
+    ...(currentPath ? { currentPath } : {}),
+    ...(activityAtMs ? { activityAtMs } : {}),
+    ...(currentCommand ? { currentCommand } : {}),
+    ...(paneTitle ? { paneTitle } : {})
+  };
+}
+
+export function buildTmuxPaneLabel(
+  pane: { session: string; windowIndex: number; paneIndex: number; currentCommand?: string; currentPath?: string },
+  homeDir: string | undefined = process.env.HOME
+): string {
+  const command = displayTmuxPaneCommand(pane.currentCommand);
+  const shortPath = shortenTmuxPanePath(pane.currentPath, homeDir);
+  return [`${pane.session}:${pane.windowIndex}.${pane.paneIndex}`, command, shortPath].filter(Boolean).join(" \u00b7 ");
+}
+
+export function displayTmuxPaneCommand(command: string | undefined): string {
+  const trimmed = command?.trim() ?? "";
+  // Claude Code sets its process title to its version number, e.g. "2.1.288".
+  return /^\d+\.\d+\.\d+$/.test(trimmed) ? "claude" : trimmed;
+}
+
+export function shortenTmuxPanePath(currentPath: string | undefined, homeDir: string | undefined = process.env.HOME): string {
+  if (!currentPath) {
+    return "";
+  }
+  const home = homeDir?.replace(/\/+$/, "");
+  const relative = home && (currentPath === home || currentPath.startsWith(`${home}/`))
+    ? `~${currentPath.slice(home.length)}`
+    : currentPath;
+  const root = relative.startsWith("~") ? "~" : "";
+  const segments = relative.slice(root.length).split("/").filter(Boolean);
+  if (segments.length <= 3) {
+    return relative;
+  }
+  return `${root ? "~/" : "/"}\u2026/${segments.slice(-2).join("/")}`;
+}
+
+// Pane ids are %N; anything before them is a routing prefix added by a tmux shim (e.g. "dk--box--").
+export function splitTmuxPaneTarget(target: string): { routingPrefix: string; paneId: string } | null {
+  const match = target.match(/^(.*?)(%\d+)$/);
+  return match ? { routingPrefix: match[1], paneId: match[2] } : null;
+}
+
+// Accepts a pane target or, for older links and pins, a session name (resolved to its active pane).
+export function resolveTmuxPaneEntry(entries: TmuxSession[], requested: string): TmuxSession | null {
+  const exact = entries.find((entry) => entry.name === requested);
+  if (exact) {
+    return exact;
+  }
+  const inSession = entries.filter((entry) => entry.session === requested);
+  return inSession.find((entry) => entry.windowActive && entry.paneActive) ?? inSession[0] ?? null;
+}
+
+export function resolveTmuxSessionName(entries: TmuxSession[], requested: string): string {
+  return entries.find((entry) => entry.name === requested)?.session ?? requested;
+}
+
+export function buildTmuxViewerCountArgs(target: string): string[] {
+  return [
+    "display-message",
+    "-p",
+    "-t",
+    target,
+    "#{?session_grouped,#{session_group_attached},#{session_attached}} #{window_active_clients}"
+  ];
+}
+
+export function parseTmuxViewerCounts(output: string): { sessionClients: number; windowClients: number } {
+  const [sessionClients, windowClients] = output.trim().split(/\s+/).map((value) => Number(value));
+  return {
+    sessionClients: Number.isFinite(sessionClients) ? Math.max(0, sessionClients) : 0,
+    windowClients: Number.isFinite(windowClients) ? Math.max(0, windowClients) : 0
+  };
+}
+
+export async function readTmuxViewerCounts(target: string): Promise<{ sessionClients: number; windowClients: number }> {
+  const { stdout } = await execFileAsync("tmux", buildTmuxViewerCountArgs(target));
+  return parseTmuxViewerCounts(stdout);
+}
+
+export async function killTmuxSessionQuietly(target: string): Promise<void> {
+  await execFileAsync("tmux", buildTmuxKillSessionArgs(target)).catch(() => undefined);
+}
+
+export async function listOrphanedTmuxRawSessions(): Promise<string[]> {
+  try {
+    const { stdout } = await execFileAsync("tmux", ["list-sessions", "-F", "#{session_name}\t#{session_attached}"]);
+    return stdout
+      .split(/\r?\n/)
+      .map((line) => line.split("\t"))
+      .filter(([name, attached]) => name && isTmuxRawSessionName(name) && Number(attached) === 0)
+      .map(([name]) => name);
+  } catch {
+    return [];
+  }
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 export async function listTmuxSessions(): Promise<TmuxSession[]> {
   try {
-    const { stdout } = await execFileAsync("tmux", [
-      "list-sessions",
-      "-F",
-      "#{session_name}\t#{session_windows}\t#{session_created}\t#{session_attached}\t#{window_activity}\t#{pane_current_command}\t#{pane_pid}\t#{pane_current_path}\t#{pane_title}"
-    ]);
-    return parseTmuxSessions(stdout);
+    const { stdout } = await execFileAsync("tmux", buildTmuxListPanesArgs());
+    return parseTmuxPanes(stdout);
   } catch (error) {
     const stderr = error instanceof Error && "stderr" in error ? String(error.stderr) : "";
     if (stderr.includes("no server running")) {
