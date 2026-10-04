@@ -492,7 +492,7 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       output
     });
     const local = session.name === session.paneId;
-    // gpmon's cache describes this host's tmux server, so shim panes keep atw's heuristics.
+    // agent-status's snapshot describes this host's tmux server, so shim panes keep atw's heuristics.
     const status = resolveTmuxSessionStatus(
       local ? gpmonStatuses.get(session.name) : undefined,
       visibleStatus,

@@ -54,7 +54,7 @@ export type TmuxSessionStatusDto = {
   kind: TmuxSessionStatusKind;
   // Short tooltip text, e.g. "Needs permission", "Asking a question", "Idle 12m".
   title: string;
-  // "gpmon" when read from gpmon's agent-rows cache, "atw" for atw's own fallback heuristics.
+  // "gpmon" when read from agent-status's snapshot (what gpmon shows), "atw" for atw's own fallback heuristics.
   source?: "gpmon" | "atw";
 };
 
