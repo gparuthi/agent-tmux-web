@@ -10,6 +10,7 @@ import { WebSocketServer, type RawData, type WebSocket } from "ws";
 import { TMUX_CAPTURE_HISTORY_LINES, type AppStatus, type TmuxCaptureDto, type TmuxSessionDto } from "../shared/api.js";
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../shared/tmuxStatus.js";
+import { resolveAuthToken } from "./authToken.js";
 import { CodexBridge } from "./codexBridge.js";
 import {
   buildBrowserRawTerminalPolicy,
@@ -68,7 +69,7 @@ const bindHost = process.env.HOST ?? "127.0.0.1";
 const port = Number(process.env.PORT ?? 6174);
 const codexAppServerPort = Number(process.env.CODEX_APP_SERVER_PORT ?? 43117);
 const codexAppServerAutostart = process.env.CODEX_APP_SERVER_AUTOSTART === "1";
-const authToken = process.env.AGENT_TMUX_WEB_AUTH_TOKEN ?? process.env.CODEX_WEB_AUTH_TOKEN ?? "";
+const authToken = resolveAuthToken(process.env);
 const defaultCwd = process.env.CLI_WEB_DEFAULT_CWD ?? process.env.HOME ?? process.cwd();
 const jsonBodyLimit = process.env.AGENT_TMUX_WEB_JSON_LIMIT ?? "25mb";
 const runtimeEnvironment = process.env.AGENT_TMUX_WEB_ENV === "development"

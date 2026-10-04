@@ -99,12 +99,14 @@
         { "path": "src/client/__tests__/tmuxSessionTarget.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxSessionTarget.test.ts" },
         { "path": "src/client/__tests__/tmuxToolPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxToolPreferences.test.ts" },
         { "path": "src/client/__tests__/tmuxViewPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts" },
+        { "path": "src/server/authToken.ts", "type": "registry:file", "target": "~/src/server/authToken.ts" },
         { "path": "src/server/codexBridge.ts", "type": "registry:file", "target": "~/src/server/codexBridge.ts" },
         { "path": "src/server/index.ts", "type": "registry:file", "target": "~/src/server/index.ts" },
         { "path": "src/server/terminal.ts", "type": "registry:file", "target": "~/src/server/terminal.ts" },
         { "path": "src/server/tmux.ts", "type": "registry:file", "target": "~/src/server/tmux.ts" },
         { "path": "src/server/tmuxWatch.ts", "type": "registry:file", "target": "~/src/server/tmuxWatch.ts" },
         { "path": "src/server/uploads.ts", "type": "registry:file", "target": "~/src/server/uploads.ts" },
+        { "path": "src/server/__tests__/authToken.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/authToken.test.ts" },
         { "path": "src/server/__tests__/terminal.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/terminal.test.ts" },
         { "path": "src/server/__tests__/tmux.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/tmux.test.ts" },
         { "path": "src/server/__tests__/tmuxWatch.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/tmuxWatch.test.ts" },
@@ -479,6 +481,11 @@
           "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts"
         },
         {
+          "path": "src/server/authToken.ts",
+          "type": "registry:file",
+          "target": "~/src/server/authToken.ts"
+        },
+        {
           "path": "src/server/codexBridge.ts",
           "type": "registry:file",
           "target": "~/src/server/codexBridge.ts"
@@ -507,6 +514,11 @@
           "path": "src/server/uploads.ts",
           "type": "registry:file",
           "target": "~/src/server/uploads.ts"
+        },
+        {
+          "path": "src/server/__tests__/authToken.test.ts",
+          "type": "registry:file",
+          "target": "~/src/server/__tests__/authToken.test.ts"
         },
         {
           "path": "src/server/__tests__/terminal.test.ts",

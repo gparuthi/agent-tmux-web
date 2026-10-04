@@ -268,6 +268,9 @@ Common variables:
 - `CLI_WEB_DEFAULT_CWD`: working directory for new tmux sessions.
 - `CLI_WEB_TOOLS`: JSON launcher list.
 - `AGENT_TMUX_WEB_AUTH_TOKEN`: optional shared token for browser access.
+- `AGENT_TMUX_WEB_AUTH_TOKEN_FILE`: read the token from this file instead, so it
+  stays out of the process environment. The server refuses to start if the file
+  is missing or empty. `AGENT_TMUX_WEB_AUTH_TOKEN` wins when both are set.
 - `AGENT_TMUX_WEB_JSON_LIMIT`: request body limit for large pasted prompts and
   tmux sends. Defaults to `25mb`.
 - `AGENT_TMUX_WEB_UPLOAD_DIR`: upload directory. Defaults to
