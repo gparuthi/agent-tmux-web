@@ -74,6 +74,29 @@ export function groupTmuxPanes(entries: TmuxSessionDto[], pinnedNames: string[])
   return { pinned, groups: byLastInput(ordered, (group) => lastInputAtMs(group.panes)) };
 }
 
+// Panes in the order the rail shows them: pinned first, then the panes of expanded groups.
+export function visibleTmuxRailPanes(
+  entries: TmuxSessionDto[],
+  pinnedNames: string[],
+  preferences: TmuxSessionGroupPreferences
+): TmuxSessionDto[] {
+  const { pinned, groups } = groupTmuxPanes(entries, pinnedNames);
+  return [
+    ...pinned,
+    ...groups.flatMap((group) => group.session !== null && isTmuxSessionGroupCollapsed(preferences, group.session) ? [] : group.panes)
+  ];
+}
+
+// After a pane leaves its place (e.g. its window was snoozed): the next rail row that stayed put,
+// else the one before it, else the first visible row that isn't snoozed.
+export function nextTmuxRailPaneAfter(before: TmuxSessionDto[], removed: string, after: TmuxSessionDto[]): string {
+  const sessions = new Map(after.map((entry) => [entry.name, entry.session]));
+  const index = before.findIndex((entry) => entry.name === removed);
+  const candidates = index < 0 ? [] : [...before.slice(index + 1), ...before.slice(0, index).reverse()];
+  const next = candidates.find((entry) => sessions.has(entry.name) && sessions.get(entry.name) === entry.session && !entry.snoozedUntilMs);
+  return next?.name ?? after.find((entry) => entry.name !== removed && !entry.snoozedUntilMs)?.name ?? "";
+}
+
 // The most attention-worthy status wins: blocked, working, done, idle, then unknown; ties keep pane order.
 export function aggregateTmuxSessionStatus(panes: TmuxSessionDto[]): TmuxSessionStatusDto {
   return panes.map(tmuxPaneStatus).reduce<TmuxSessionStatusDto | null>(

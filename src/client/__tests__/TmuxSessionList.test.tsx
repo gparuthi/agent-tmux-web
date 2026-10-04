@@ -94,4 +94,24 @@ describe("TmuxSessionList", () => {
     expect(html).toMatch(/tmux-session-group-header +unseen/);
     expect(html).not.toContain('aria-label="main, 1 pane, new output"');
   });
+
+  it("shows a snoozed pane's wake time and a Wake button only when waking is available", () => {
+    const nowMs = new Date(2026, 9, 4, 14, 0).getTime();
+    const entries = [
+      pane("%1", "main", { displayName: "build agent" }),
+      pane("%8", "_hidden", { displayName: "camera eval", snoozedUntilMs: nowMs + 3 * 60 * 60_000 })
+    ];
+    const onWake = vi.fn();
+    const props = { groupPreferences: [["_hidden", false]] as TmuxSessionGroupPreferences, paneViews: allSeen, panes: entries, pinnedNames: [], selected: "%1", onSelect: vi.fn(), onTogglePin: vi.fn(), onToggleGroup: vi.fn(), nowMs };
+    const html = renderToStaticMarkup(<TmuxSessionList {...props} onWake={onWake} />);
+
+    expect(html).toContain('<span class="tmux-session-wake">wakes 3h</span>');
+    expect(html).toContain('class="tmux-session-row   snoozed"');
+    expect(html).toContain('aria-label="Wake camera eval now"');
+    expect(html.match(/tmux-session-wake-button/g)).toHaveLength(1);
+
+    const readOnly = renderToStaticMarkup(<TmuxSessionList {...props} />);
+    expect(readOnly).toContain("wakes 3h");
+    expect(readOnly).not.toContain("tmux-session-wake-button");
+  });
 });

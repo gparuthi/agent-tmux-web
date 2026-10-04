@@ -45,6 +45,8 @@ export type TmuxSessionDto = {
   // Agent CLI in the pane, from its process tree (local panes) or pane_current_command.
   agent?: string;
   status?: TmuxSessionStatusDto;
+  // Wake deadline of a window tmux-hide-window snoozed into the _hidden session.
+  snoozedUntilMs?: number;
 };
 
 // Same five states and colours as gpmon's agents panel.
@@ -144,6 +146,8 @@ export type AppStatus = {
   defaultCwd: string;
   tailscaleIp: string | null;
   tailscaleDns: string | null;
+  // tmux-hide-window is installed, so panes can snooze their window.
+  windowSnooze: boolean;
   codex: {
     connected: boolean;
     appServerUrl: string;

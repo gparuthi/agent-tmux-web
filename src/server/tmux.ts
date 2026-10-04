@@ -42,6 +42,7 @@ export type TmuxSession = {
   activityAtMs?: number;
   currentCommand?: string;
   paneTitle?: string;
+  snoozedUntilMs?: number;
 };
 
 export type CodexTmuxCommandOptions = {
@@ -415,10 +416,22 @@ export const TMUX_LIST_PANES_FORMAT = [
   "#{pane_current_path}",
   "#{window_panes}",
   "#{host}",
+  // tmux-hide-window's window marks: home session id and snooze deadline (unix seconds).
+  "#{@hide_origin}",
+  "#{@hide_until}",
   // tmux rejects tabs in window names; pane_title stays last so tabs in it are rejoined.
   "#{window_name}",
   "#{pane_title}"
 ].join("\t");
+
+// tmux-hide-window parks hidden and snoozed windows in this detached session.
+export const HIDDEN_TMUX_SESSION = "_hidden";
+
+// A parked window with a wake deadline is snoozed; one peeked back into its home session is not.
+export function parseTmuxWindowSnooze(session: string, hideOrigin: string, hideUntil: string): number | undefined {
+  const untilMs = /^\d+$/.test(hideUntil) ? unixSecondsToMs(hideUntil) : undefined;
+  return session === HIDDEN_TMUX_SESSION && hideOrigin && untilMs ? untilMs : undefined;
+}
 
 export function buildTmuxListPanesArgs(): string[] {
   return ["list-panes", "-a", "-F", TMUX_LIST_PANES_FORMAT];
@@ -444,7 +457,7 @@ export function parseTmuxPanes(output: string, homeDir: string | undefined = pro
 
 function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSession | null {
   const parts = line.split("\t");
-  if (parts.length < 17) {
+  if (parts.length < 19) {
     return null;
   }
   const [
@@ -464,6 +477,8 @@ function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSessi
     currentPath,
     windowPanesValue,
     host,
+    hideOrigin,
+    hideUntil,
     windowName,
     ...paneTitleParts
   ] = parts;
@@ -476,6 +491,7 @@ function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSessi
   const createdAtMs = unixSecondsToMs(created);
   const activityAtMs = unixSecondsToMs(activity);
   const target = splitTmuxPaneTarget(paneTarget);
+  const snoozedUntilMs = parseTmuxWindowSnooze(session, hideOrigin, hideUntil);
   if (!session
     || !target
     || !Number.isInteger(windowIndex)
@@ -514,7 +530,8 @@ function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSessi
     ...(currentPath ? { currentPath } : {}),
     ...(activityAtMs ? { activityAtMs } : {}),
     ...(currentCommand ? { currentCommand } : {}),
-    ...(paneTitle ? { paneTitle } : {})
+    ...(paneTitle ? { paneTitle } : {}),
+    ...(snoozedUntilMs ? { snoozedUntilMs } : {})
   };
 }
 

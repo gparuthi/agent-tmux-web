@@ -4,6 +4,7 @@ import { Terminal as XtermTerminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import {
   Activity,
+  AlarmClock,
   ArrowDown,
   ArrowDownToLine,
   ArrowLeft,
@@ -101,6 +102,7 @@ import {
 import {
   filterTmuxAgentPanes,
   markTmuxPanesViewed,
+  nextTmuxRailPaneAfter,
   parseTmuxPaneViews,
   parseTmuxSessionGroupPreferences,
   setTmuxSessionGroupCollapsed,
@@ -108,6 +110,7 @@ import {
   TMUX_PANE_VIEWS_STORAGE_KEY,
   TMUX_SESSION_GROUPS_STORAGE_KEY,
   tmuxWindowPaneNames,
+  visibleTmuxRailPanes,
   type TmuxPaneViews,
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
@@ -125,6 +128,7 @@ import {
 } from "./keyStripCombos.js";
 import { TmuxKeyStrip } from "./TmuxKeyStrip.js";
 import { NewAgentSheet } from "./NewAgentSheet.js";
+import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
 import {
   DEFAULT_TMUX_VIEW_STORAGE_KEY,
@@ -206,6 +210,7 @@ const DEMO_STATUS: AppStatus = {
   defaultCwd: "/workspace/project",
   tailscaleIp: "100.x.y.z",
   tailscaleDns: "agent-server.tailnet.example",
+  windowSnooze: false,
   codex: {
     connected: false,
     appServerUrl: "ws://127.0.0.1:43117",
@@ -337,6 +342,7 @@ export function App() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [error, setError] = useState("");
   const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [windowSnoozeTarget, setWindowSnoozeTarget] = useState("");
   const [pinnedTmuxSessionNames, setPinnedTmuxSessionNames] = useState<string[]>(readInitialPinnedTmuxSessionNames);
   const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
   const [tmuxPaneViews, setTmuxPaneViews] = useState<TmuxPaneViews>(readInitialTmuxPaneViews);
@@ -429,6 +435,10 @@ export function App() {
   );
   const hiddenTmuxPaneCount = tmuxSessions.length - railTmuxPanes.length;
   const selectedTmuxPinned = Boolean(selectedTmux) && pinnedTmuxSessionNames.includes(selectedTmux);
+  // tmux-hide-window runs against this host's tmux, so container (shim-prefixed) panes can't snooze.
+  const windowSnoozeAvailable = !demoMode && Boolean(status?.windowSnooze);
+  const selectedTmuxSnoozable = windowSnoozeAvailable && Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
+  const windowSnoozeEntry = windowSnoozeTarget ? findTmuxPane(tmuxSessions, windowSnoozeTarget) : undefined;
 
   const baseUrl = useMemo(() => {
     if (!status) {
@@ -1799,6 +1809,43 @@ export function App() {
     setTerminalStatus("no session selected");
   }
 
+  function openWindowSnoozeSheet() {
+    if (selectedTmuxSnoozable) {
+      closeTmuxSettingsMenu();
+      setWindowSnoozeTarget(selectedTmux);
+    }
+  }
+
+  async function snoozeTmuxWindow(target: string, duration: string) {
+    const railBefore = visibleTmuxRailPanes(railTmuxPanes, pinnedTmuxSessionNames, tmuxSessionGroupPreferences);
+    const remaining = (await api<{ data: TmuxSessionDto[] }>("/api/tmux/snooze", {
+      method: "POST",
+      body: JSON.stringify({ target, duration })
+    })).data;
+    setWindowSnoozeTarget("");
+    setTmuxSessions(remaining);
+    setTerminalStatus(`snoozed ${target}'s window for ${duration}`);
+    if (selectedTmuxRef.current !== target) {
+      return;
+    }
+    // The window moved to _hidden, so its rows left their group; carry on with the next row.
+    const railAfter = visibleTmuxRailPanes(filterTmuxAgentPanes(remaining, showAllTmuxPanes, ""), pinnedTmuxSessionNames, tmuxSessionGroupPreferences);
+    const next = nextTmuxRailPaneAfter(railBefore, target, railAfter);
+    if (next) {
+      selectTmuxSession(next);
+    }
+  }
+
+  async function wakeTmuxWindow(target: string) {
+    const remaining = (await api<{ data: TmuxSessionDto[] }>("/api/tmux/wake-window", {
+      method: "POST",
+      body: JSON.stringify({ target })
+    })).data;
+    setWindowSnoozeTarget("");
+    setTmuxSessions(remaining);
+    setTerminalStatus(`woke ${target}'s window`);
+  }
+
   function handleAgentStarted(result: StartAgentResultDto) {
     setNewAgentOpen(false);
     setTmuxSessions(result.sessions);
@@ -2311,7 +2358,7 @@ export function App() {
               <Menu size={15} />
             </button>
           </div>
-          <div className="tmux-terminal-toolbar">
+          <div className={`tmux-terminal-toolbar ${windowSnoozeAvailable ? "with-snooze" : ""}`}>
             <button
               aria-label={`Switch to ${terminalActive ? "TTY" : "Raw"} view`}
               className="tmux-view-toggle"
@@ -2363,6 +2410,17 @@ export function App() {
             >
               <SquareX aria-hidden="true" size={15} />
             </button>
+            {windowSnoozeAvailable && (
+              <button
+                aria-label="Snooze this pane's window"
+                disabled={!selectedTmuxSnoozable}
+                title="Snooze window: hide it until a wake time"
+                type="button"
+                onClick={openWindowSnoozeSheet}
+              >
+                <AlarmClock aria-hidden="true" size={15} />
+              </button>
+            )}
             <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
             <details className="tmux-view-menu tmux-settings-menu" ref={tmuxSettingsMenuRef}>
               <summary aria-label="More options" title="More options">
@@ -2466,6 +2524,7 @@ export function App() {
               onSelect={selectTmuxSession}
               onTogglePin={toggleTmuxSessionPin}
               onToggleGroup={setTmuxSessionGroupCollapsedPreference}
+              onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch(reportError(setError)) : undefined}
             />
           </div>
           <div className="tmux-connection-status">
@@ -2552,6 +2611,15 @@ export function App() {
           )}
         </div>
       </aside>
+      {windowSnoozeEntry && (
+        <WindowSnoozeSheet
+          paneName={tmuxPaneDisplayName(windowSnoozeEntry)}
+          snoozedUntilMs={windowSnoozeEntry.snoozedUntilMs}
+          snooze={(duration) => snoozeTmuxWindow(windowSnoozeEntry.name, duration)}
+          wake={() => wakeTmuxWindow(windowSnoozeEntry.name)}
+          onClose={() => setWindowSnoozeTarget("")}
+        />
+      )}
       {newAgentOpen && (
         <NewAgentSheet
           loadAgents={loadNewAgentOptions}

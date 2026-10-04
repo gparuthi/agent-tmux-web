@@ -24,6 +24,7 @@ import {
   listTmuxSessions,
   parseTmuxPanes,
   parseTmuxViewerCounts,
+  parseTmuxWindowSnooze,
   closeTmuxPane,
   resolveClosableTmuxPane,
   resolveTmuxPaneEntry,
@@ -693,6 +694,8 @@ function paneLine(fields: {
   title?: string;
   windowName?: string;
   windowPanes?: number;
+  hideOrigin?: string;
+  hideUntil?: string;
 }): string {
   return [
     fields.session,
@@ -711,6 +714,8 @@ function paneLine(fields: {
     fields.path ?? "/home/me/work/app",
     String(fields.windowPanes ?? 1),
     "mini.local",
+    fields.hideOrigin ?? "",
+    fields.hideUntil ?? "",
     fields.windowName ?? "zsh",
     fields.title ?? "mini.local"
   ].join("\t");
@@ -815,6 +820,34 @@ describe("tmux pane listing", () => {
     ].join("\n"));
 
     expect(panes.map((pane) => [pane.session, pane.name])).toEqual([["main", "%9"]]);
+  });
+
+  it("marks panes of windows tmux-hide-window snoozed into _hidden with their wake time", () => {
+    const format = TMUX_LIST_PANES_FORMAT.split("\t");
+    expect(format.slice(-4)).toEqual(["#{@hide_origin}", "#{@hide_until}", "#{window_name}", "#{pane_title}"]);
+
+    const panes = parseTmuxPanes([
+      paneLine({ session: "_hidden", pane: "%8", windowIndex: 1, paneIndex: 0, hideOrigin: "$2", hideUntil: "1792003790" }),
+      paneLine({ session: "_hidden", pane: "%9", windowIndex: 2, paneIndex: 0, hideOrigin: "$2" }),
+      paneLine({ session: "_hidden", pane: "%10", windowIndex: 3, paneIndex: 0, hideOrigin: "$2", hideUntil: "soon" }),
+      paneLine({ session: "_hidden", pane: "%11", windowIndex: 4, paneIndex: 0, hideUntil: "1792003790" }),
+      paneLine({ session: "main", pane: "%12", windowIndex: 0, paneIndex: 0, hideOrigin: "$2", hideUntil: "1792003790" }),
+      paneLine({ session: "main", pane: "%13", windowIndex: 1, paneIndex: 0, windowName: "plain" })
+    ].join("\n"));
+    const snoozed = Object.fromEntries(panes.map((pane) => [pane.name, pane.snoozedUntilMs]));
+
+    expect(snoozed).toEqual({
+      "%8": 1792003790000,
+      // Hidden without a deadline, junk deadline, no home session, and peeked back in: not snoozed.
+      "%9": undefined,
+      "%10": undefined,
+      "%11": undefined,
+      "%12": undefined,
+      "%13": undefined
+    });
+    expect(panes.find((pane) => pane.name === "%13")?.windowName).toBe("plain");
+    expect(parseTmuxWindowSnooze("_hidden", "$2", "0")).toBeUndefined();
+    expect(parseTmuxWindowSnooze("_hidden", "$2", "-5")).toBeUndefined();
   });
 
   it("keeps shim-prefixed container panes routable", () => {

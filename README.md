@@ -283,6 +283,10 @@ Common variables:
 - `ATW_TAILSCALE_LOGINS`: comma-separated tailnet logins (case-insensitive)
   trusted via `tailscale serve`'s `Tailscale-User-Login` header on loopback
   requests. Unset or empty keeps token-only auth.
+- `ATW_HIDE_WINDOW_BIN`: path to `tmux-hide-window`, which backs the top bar's
+  Snooze window button and the rail's Wake action. Defaults to
+  `~/.gp/tools/tmux-hide-window/tmux-hide-window`; empty, missing or
+  non-executable hides the button.
 - `AGENT_TMUX_WEB_LAST_INPUT_FILE`: where the per-pane "last input" times that
   sort the session list are saved. Defaults to `~/.local/state/atw/last-input.json`.
 - `AGENT_TMUX_WEB_JSON_LIMIT`: request body limit for large pasted prompts and

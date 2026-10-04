@@ -1,6 +1,7 @@
-import { ChevronRight, Eye, Pin } from "lucide-react";
+import { ChevronRight, Eye, Pin, Sunrise } from "lucide-react";
 
 import type { TmuxSessionDto } from "../shared/api.js";
+import { formatWindowWake } from "../shared/windowSnooze.js";
 import {
   aggregateTmuxSessionStatus,
   groupTmuxPanes,
@@ -22,9 +23,23 @@ type TmuxSessionListProps = {
   onSelect: (name: string) => void;
   onTogglePin: (name: string) => void;
   onToggleGroup: (session: string, collapsed: boolean) => void;
+  // Present when tmux-hide-window is installed; snoozed rows then get a Wake button.
+  onWake?: (name: string) => void;
+  nowMs?: number;
 };
 
-export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences, paneViews, onSelect, onTogglePin, onToggleGroup }: TmuxSessionListProps) {
+export function TmuxSessionList({
+  panes,
+  pinnedNames,
+  selected,
+  groupPreferences,
+  paneViews,
+  onSelect,
+  onTogglePin,
+  onToggleGroup,
+  onWake,
+  nowMs = Date.now()
+}: TmuxSessionListProps) {
   const { pinned, groups } = groupTmuxPanes(panes, pinnedNames);
   const unseen = (pane: TmuxSessionDto) => pane.name !== selected && hasUnseenTmuxActivity(paneViews, pane);
 
@@ -33,12 +48,13 @@ export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences
     const isPinned = pinnedNames.includes(pane.name);
     const viewerCount = pane.viewerCount ?? 0;
     const displayName = tmuxPaneDisplayName(pane);
+    const wake = pane.snoozedUntilMs ? formatWindowWake(pane.snoozedUntilMs, nowMs) : "";
     return (
-      <div className={`tmux-session-row ${selected === pane.name ? "active" : ""} ${unseen(pane) ? "unseen" : ""}`} key={pane.name}>
+      <div className={`tmux-session-row ${selected === pane.name ? "active" : ""} ${unseen(pane) ? "unseen" : ""}${wake && onWake ? " snoozed" : ""}`} key={pane.name}>
         <button
           aria-current={selected === pane.name ? "true" : undefined}
           className="tmux-session-select"
-          title={`${displayName} (${tmuxPaneDetail(pane)}): ${status.title}${unseen(pane) ? ", new output" : ""}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
+          title={`${displayName} (${tmuxPaneDetail(pane)}): ${status.title}${wake ? `, snoozed, ${wake}` : ""}${unseen(pane) ? ", new output" : ""}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
           type="button"
           onClick={() => onSelect(pane.name)}
         >
@@ -48,6 +64,7 @@ export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences
             title={status.title}
           />
           <span className="tmux-session-name">{displayName}</span>
+          {wake && <span className="tmux-session-wake">{wake}</span>}
           <span className="tmux-session-detail">{inGroup ? tmuxPaneGroupDetail(pane) : tmuxPaneDetail(pane)}</span>
           {viewerCount > 0 && (
             <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>
@@ -56,6 +73,18 @@ export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences
             </span>
           )}
         </button>
+        {wake && onWake && (
+          <button
+            aria-label={`Wake ${displayName} now`}
+            className="tmux-session-wake-button"
+            title="Wake now: move the window back to its session"
+            type="button"
+            onClick={() => onWake(pane.name)}
+          >
+            <Sunrise aria-hidden="true" size={12} />
+            <span>Wake</span>
+          </button>
+        )}
         <button
           aria-label={isPinned ? `Unpin ${displayName}` : `Pin ${displayName}`}
           aria-pressed={isPinned}

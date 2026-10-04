@@ -10,13 +10,15 @@ import {
   isTmuxSessionGroupCollapsed,
   markTmuxPanesViewed,
   MAX_STORED_TMUX_PANE_VIEWS,
+  nextTmuxRailPaneAfter,
   MAX_STORED_TMUX_SESSION_GROUPS,
   parseTmuxPaneViews,
   parseTmuxSessionGroupPreferences,
   setTmuxSessionGroupCollapsed,
   tmuxPaneGroupDetail,
   tmuxPaneStatus,
-  tmuxWindowPaneNames
+  tmuxWindowPaneNames,
+  visibleTmuxRailPanes
 } from "../tmuxSessionGroups.js";
 
 const WORKING: TmuxSessionStatusDto = { kind: "working", title: "Working" };
@@ -236,5 +238,38 @@ describe("unseen pane activity", () => {
     expect(tmuxWindowPaneNames(entries, "legacy")).toEqual(["legacy"]);
     expect(tmuxWindowPaneNames(entries, "%9")).toEqual(["%9"]);
     expect(tmuxWindowPaneNames(entries, "")).toEqual([]);
+  });
+});
+
+describe("rail order and the pane after a snooze", () => {
+  const rail = [
+    pane("%1", "main", { lastInputAtMs: 300 }),
+    pane("%2", "main", { lastInputAtMs: 200 }),
+    pane("%3", "gp", { lastInputAtMs: 100 }),
+    pane("%4", "_hidden", { lastInputAtMs: 900 }),
+    pane("%5", "gp", { lastInputAtMs: 50 })
+  ];
+
+  it("lists pinned panes, then expanded groups, skipping collapsed ones", () => {
+    expect(visibleTmuxRailPanes(rail, ["%5"], []).map((entry) => entry.name)).toEqual(["%5", "%1", "%2", "%3"]);
+    expect(visibleTmuxRailPanes(rail, [], [["_hidden", false], ["main", true]]).map((entry) => entry.name)).toEqual(["%4", "%3", "%5"]);
+  });
+
+  it("selects the next row that stayed in place, else the previous one", () => {
+    const before = visibleTmuxRailPanes(rail, [], []);
+    // %1's window (with %2) moved to _hidden.
+    const after = visibleTmuxRailPanes([
+      pane("%1", "_hidden", { snoozedUntilMs: 1 }),
+      pane("%2", "_hidden", { snoozedUntilMs: 1 }),
+      pane("%3", "gp", { lastInputAtMs: 100 }),
+      pane("%5", "gp", { lastInputAtMs: 50 })
+    ], [], []);
+    expect(nextTmuxRailPaneAfter(before, "%1", after)).toBe("%3");
+    expect(nextTmuxRailPaneAfter(before, "%5", [pane("%1", "main"), pane("%2", "main"), pane("%3", "gp")])).toBe("%3");
+  });
+
+  it("falls back to the first unsnoozed row, or nothing", () => {
+    expect(nextTmuxRailPaneAfter([], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 }), pane("%9", "gp")])).toBe("%9");
+    expect(nextTmuxRailPaneAfter([pane("%1", "main")], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 })])).toBe("");
   });
 });
