@@ -14,6 +14,7 @@ import {
   buildTmuxCapturePaneArgs,
   buildTmuxKillSessionArgs,
   buildTmuxListPanesArgs,
+  buildTmuxPaneDisplayName,
   buildTmuxPaneLabel,
   buildTmuxViewerCountArgs,
   captureTmuxPane,
@@ -620,6 +621,8 @@ function paneLine(fields: {
   command?: string;
   path?: string;
   title?: string;
+  windowName?: string;
+  windowPanes?: number;
 }): string {
   return [
     fields.session,
@@ -636,11 +639,51 @@ function paneLine(fields: {
     fields.command ?? "zsh",
     "4242",
     fields.path ?? "/home/me/work/app",
-    fields.title ?? "host"
+    String(fields.windowPanes ?? 1),
+    "mini.local",
+    fields.windowName ?? "zsh",
+    fields.title ?? "mini.local"
   ].join("\t");
 }
 
 describe("tmux pane listing", () => {
+  it("parses window names and pane titles with spaces, pipes, tabs, and unicode", () => {
+    const panes = parseTmuxPanes([
+      paneLine({ session: "main", pane: "%39", windowIndex: 2, paneIndex: 0, windowName: "\u2733 Research notes thread", title: "\u2733 Research notes thread" }),
+      paneLine({ session: "main", pane: "%49", windowIndex: 4, paneIndex: 0, windowName: "\u03c0 - personal", title: "pi\tagent" }),
+      paneLine({ session: "gp", pane: "%27", windowIndex: 1, paneIndex: 0, windowName: "[ ! ] Action Required | Review build output | .gp" }),
+      paneLine({ session: "gp", pane: "%1", windowIndex: 0, paneIndex: 0, windowName: "gpmon", windowPanes: 2, title: "\u2733 Tmux" }),
+      paneLine({ session: "gp", pane: "%7", windowIndex: 0, paneIndex: 1, windowName: "gpmon", windowPanes: 2, title: "mini" }),
+      paneLine({ session: "main", pane: "%31", windowIndex: 0, paneIndex: 1, windowName: "brief", windowPanes: 2, title: "" }),
+      paneLine({ session: "main", pane: "%44", windowIndex: 3, paneIndex: 0, windowName: "claude", title: "\u2733 Draft network spec" }),
+      paneLine({ session: "main", pane: "%50", windowIndex: 5, paneIndex: 0, windowName: "notes", title: "mini.local" })
+    ].join("\n"), "/home/me");
+    const byName = new Map(panes.map((pane) => [pane.name, pane]));
+
+    expect(byName.get("%39")).toMatchObject({
+      windowName: "\u2733 Research notes thread",
+      displayName: "\u2733 Research notes thread",
+      label: "main:2.0 \u00b7 zsh \u00b7 ~/work/app"
+    });
+    expect(byName.get("%49")).toMatchObject({ windowName: "\u03c0 - personal", displayName: "pi\tagent", paneTitle: "pi\tagent" });
+    expect(byName.get("%27")?.displayName).toBe("[ ! ] Action Required | Review build output | .gp");
+    expect(byName.get("%1")?.displayName).toBe("\u2733 Tmux");
+    expect(byName.get("%7")?.displayName).toBe("gpmon \u00b7 pane 1");
+    expect(byName.get("%31")?.displayName).toBe("brief \u00b7 pane 1");
+    expect(byName.get("%44")?.displayName).toBe("\u2733 Draft network spec");
+    expect(byName.get("%50")?.displayName).toBe("notes");
+  });
+
+  it("names panes by pane title, then window name, then pane number, then location", () => {
+    const base = { paneIndex: 1, host: "mini.local", fallback: "main:0.1" };
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "brief notes", windowPanes: 1 })).toBe("brief notes");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "brief notes", windowPanes: 2 })).toBe("brief notes");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "mini", windowPanes: 1 })).toBe("brief");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "mini.local", windowPanes: 2 })).toBe("brief \u00b7 pane 1");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "", paneTitle: "", windowPanes: 1 })).toBe("main:0.1");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "", paneTitle: "mini.local", windowPanes: 2 })).toBe("main:0.1");
+  });
+
   it("lists every pane across sessions with session-level metadata", () => {
     expect(buildTmuxListPanesArgs()).toEqual(["list-panes", "-a", "-F", TMUX_LIST_PANES_FORMAT]);
     expect(TMUX_LIST_PANES_FORMAT.split("\t").slice(0, 2)).toEqual(["#{session_name}", "#{pane_id}"]);
@@ -668,7 +711,9 @@ describe("tmux pane listing", () => {
       panePid: 4242,
       currentPath: "/home/me/work/app",
       currentCommand: "2.1.288",
-      paneTitle: "host"
+      windowName: "zsh",
+      displayName: "zsh",
+      paneTitle: "mini.local"
     });
     expect(panes[2].label).toBe("main:1.0 \u00b7 node \u00b7 ~");
   });

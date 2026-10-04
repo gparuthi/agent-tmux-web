@@ -27,6 +27,8 @@ export type TmuxSession = {
   windowActive?: boolean;
   paneActive?: boolean;
   label?: string;
+  windowName?: string;
+  displayName?: string;
   windows: number;
   created: string;
   createdAtMs?: number;
@@ -372,6 +374,10 @@ export const TMUX_LIST_PANES_FORMAT = [
   "#{pane_current_command}",
   "#{pane_pid}",
   "#{pane_current_path}",
+  "#{window_panes}",
+  "#{host}",
+  // tmux rejects tabs in window names; pane_title stays last so tabs in it are rejoined.
+  "#{window_name}",
   "#{pane_title}"
 ].join("\t");
 
@@ -399,7 +405,7 @@ export function parseTmuxPanes(output: string, homeDir: string | undefined = pro
 
 function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSession | null {
   const parts = line.split("\t");
-  if (parts.length < 14) {
+  if (parts.length < 17) {
     return null;
   }
   const [
@@ -417,6 +423,9 @@ function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSessi
     currentCommand,
     panePidValue,
     currentPath,
+    windowPanesValue,
+    host,
+    windowName,
     ...paneTitleParts
   ] = parts;
   const paneTitle = paneTitleParts.join("\t");
@@ -448,6 +457,15 @@ function parseTmuxPaneLine(line: string, homeDir: string | undefined): TmuxSessi
     windowActive: windowActive === "1",
     paneActive: paneActive === "1",
     label: buildTmuxPaneLabel({ session, windowIndex, paneIndex, currentCommand, currentPath }, homeDir),
+    ...(windowName ? { windowName } : {}),
+    displayName: buildTmuxPaneDisplayName({
+      windowName,
+      paneTitle,
+      paneIndex,
+      windowPanes: Number(windowPanesValue),
+      host,
+      fallback: `${session}:${windowIndex}.${paneIndex}`
+    }),
     windows: windowCount,
     created: new Date(createdAtMs).toISOString(),
     createdAtMs,
@@ -468,6 +486,28 @@ export function buildTmuxPaneLabel(
   const command = displayTmuxPaneCommand(pane.currentCommand);
   const shortPath = shortenTmuxPanePath(pane.currentPath, homeDir);
   return [`${pane.session}:${pane.windowIndex}.${pane.paneIndex}`, command, shortPath].filter(Boolean).join(" \u00b7 ");
+}
+
+// Agents set live titles on the pane; the window name is the fallback, numbered when the window is split.
+export function buildTmuxPaneDisplayName(pane: {
+  windowName?: string;
+  paneTitle?: string;
+  paneIndex: number;
+  windowPanes: number;
+  host?: string;
+  fallback: string;
+}): string {
+  const paneTitle = pane.paneTitle?.trim() ?? "";
+  const hostNames = new Set([pane.host, pane.host?.split(".")[0]].filter(Boolean));
+  // tmux defaults pane titles to the hostname, which says nothing about the pane.
+  if (paneTitle && !hostNames.has(paneTitle)) {
+    return paneTitle;
+  }
+  const windowName = pane.windowName?.trim() ?? "";
+  if (!windowName) {
+    return pane.fallback;
+  }
+  return pane.windowPanes > 1 ? `${windowName} \u00b7 pane ${pane.paneIndex}` : windowName;
 }
 
 export function displayTmuxPaneCommand(command: string | undefined): string {

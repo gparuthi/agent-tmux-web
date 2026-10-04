@@ -508,6 +508,21 @@ textarea:focus {
   gap: 2px;
 }
 
+.tmux-session-text {
+  display: grid;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.tmux-session-detail {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tmux-session-group-title {
   overflow: hidden;
   padding: 6px 8px 2px;
@@ -522,8 +537,8 @@ textarea:focus {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 28px;
   align-items: center;
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   border-radius: 2px;
   background: transparent;
 }
@@ -533,8 +548,8 @@ textarea:focus {
 }
 
 .tmux-session-select {
-  height: 32px;
-  min-height: 32px;
+  height: 40px;
+  min-height: 40px;
   padding: 0 4px 0 8px;
   border-radius: 2px 0 0 2px;
   background: transparent;
@@ -1585,7 +1600,7 @@ textarea:focus {
 
   .tmux-session-row {
     max-width: none;
-    min-height: 32px;
+    min-height: 40px;
   }
 
   .tmux-session-select {

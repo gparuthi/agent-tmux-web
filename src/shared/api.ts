@@ -29,6 +29,10 @@ export type TmuxSessionDto = {
   windowActive?: boolean;
   paneActive?: boolean;
   label?: string;
+  windowName?: string;
+  paneTitle?: string;
+  // Primary text: pane title, else window name ("window · pane N" when split), else session:w.p.
+  displayName?: string;
   windows: number;
   created: string;
   createdAtMs?: number;

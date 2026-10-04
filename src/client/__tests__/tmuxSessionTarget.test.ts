@@ -9,7 +9,8 @@ import {
   parsePinnedTmuxSessionNames,
   readRequestedTmuxSession,
   removeRequestedTmuxSession,
-  tmuxPaneRowLabel,
+  tmuxPaneDetail,
+  tmuxPaneDisplayName,
   tmuxPaneShortName,
   tmuxSessionGroupHeader,
   togglePinnedTmuxSessionName
@@ -66,12 +67,13 @@ describe("tmux pane entries", () => {
     pane("%1", "gp", 0, 0),
     pane("%7", "gp", 0, 1),
     pane("%32", "main", 0, 0, { attached: true }),
-    pane("%20", "main", 1, 0, { attached: true, windowActive: true, paneActive: true })
+    pane("%20", "main", 1, 0, { attached: true, windowActive: true, paneActive: true, displayName: "\u2733 Research notes thread" })
   ];
 
-  it("labels rows without repeating the session header", () => {
-    expect(tmuxPaneShortName(panes[3])).toBe("main:1.0");
-    expect(tmuxPaneRowLabel(panes[3])).toBe("1.0 \u00b7 zsh \u00b7 ~/work");
+  it("shows the window name first and the pane location as detail", () => {
+    expect(tmuxPaneDisplayName(panes[3])).toBe("\u2733 Research notes thread");
+    expect(tmuxPaneDetail(panes[3])).toBe("main:1.0 \u00b7 zsh \u00b7 ~/work");
+    expect(tmuxPaneDisplayName(panes[0])).toBe("gp:0.0");
     expect(tmuxPaneShortName({ name: "legacy", windows: 1, created: "", attached: false })).toBe("legacy");
   });
 
@@ -92,7 +94,7 @@ describe("tmux pane entries", () => {
   });
 
   it("replaces pane ids in status text with readable pane names", () => {
-    expect(formatTmuxStatusText("live terminal for %20", panes)).toBe("live terminal for main:1.0");
+    expect(formatTmuxStatusText("live terminal for %20", panes)).toBe("live terminal for \u2733 Research notes thread");
     expect(formatTmuxStatusText("sent to %7; following output", panes)).toBe("sent to gp:0.1; following output");
     expect(formatTmuxStatusText("%99 is idle", panes)).toBe("%99 is idle");
     expect(formatTmuxStatusText("50% done", panes)).toBe("50% done");

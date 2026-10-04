@@ -95,9 +95,8 @@ import {
   PINNED_TMUX_SESSIONS_STORAGE_KEY,
   readRequestedTmuxSession,
   removeRequestedTmuxSession,
+  tmuxPaneDetail,
   tmuxPaneDisplayName,
-  tmuxPaneRowLabel,
-  tmuxPaneShortName,
   tmuxSessionGroupHeader,
   togglePinnedTmuxSessionName
 } from "./tmuxSessionTarget.js";
@@ -1625,7 +1624,7 @@ export function App() {
 
   function tmuxNotificationDisplayName(target: string): string | undefined {
     const entry = findTmuxPane(tmuxSessionsRef.current, target);
-    return entry ? tmuxPaneShortName(entry) : undefined;
+    return entry ? tmuxPaneDisplayName(entry) : undefined;
   }
 
   function sendRawTerminalData(data: string) {
@@ -2318,7 +2317,7 @@ export function App() {
               <EnvironmentBadge environment={status?.environment} />
             </div>
             <button className="tmux-session-menu-button" type="button" onClick={() => setTmuxMenuOpen((current) => !current)}>
-              <span>{selectedTmuxEntry ? tmuxPaneShortName(selectedTmuxEntry) : selectedTmux || "no session"}</span>
+              <span>{selectedTmuxEntry ? tmuxPaneDisplayName(selectedTmuxEntry) : selectedTmux || "no session"}</span>
               <Menu size={15} />
             </button>
           </div>
@@ -2433,7 +2432,7 @@ export function App() {
                     <div className={`tmux-session-row ${selectedTmux === session.name ? "active" : ""}`}>
                       <button
                         className="tmux-session-select"
-                        title={`${tmuxPaneDisplayName(session)}: ${sessionStatus.title}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
+                        title={`${tmuxPaneDisplayName(session)} (${tmuxPaneDetail(session)}): ${sessionStatus.title}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
                         type="button"
                         onClick={() => selectTmuxSession(session.name)}
                       >
@@ -2442,7 +2441,10 @@ export function App() {
                           className={`tmux-session-status-dot ${sessionStatus.health}`}
                           title={sessionStatus.title}
                         />
-                        <span className="tmux-session-name">{tmuxPaneRowLabel(session)}</span>
+                        <span className="tmux-session-text">
+                          <span className="tmux-session-name">{tmuxPaneDisplayName(session)}</span>
+                          <span className="tmux-session-detail">{tmuxPaneDetail(session)}</span>
+                        </span>
                         {viewerCount > 0 && (
                           <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>
                             <Eye aria-hidden="true" size={14} />
@@ -2451,7 +2453,7 @@ export function App() {
                         )}
                       </button>
                       <button
-                        aria-label={pinned ? `Unpin ${tmuxPaneShortName(session)}` : `Pin ${tmuxPaneShortName(session)}`}
+                        aria-label={pinned ? `Unpin ${tmuxPaneDisplayName(session)}` : `Pin ${tmuxPaneDisplayName(session)}`}
                         aria-pressed={pinned}
                         className={`tmux-session-pin ${pinned ? "active" : ""}`}
                         title={pinned ? "Unpin pane" : "Pin pane to top"}

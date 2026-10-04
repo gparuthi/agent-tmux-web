@@ -55,14 +55,13 @@ export function tmuxPaneShortName(entry: TmuxSessionDto): string {
     : entry.name;
 }
 
+// Window name (live agent title) first; older servers only send a label.
 export function tmuxPaneDisplayName(entry: TmuxSessionDto): string {
-  return entry.label ?? entry.name;
+  return entry.displayName?.trim() || tmuxPaneShortName(entry);
 }
 
-// Rows sit under a session header, so drop the repeated "session:" prefix from the label.
-export function tmuxPaneRowLabel(entry: TmuxSessionDto): string {
-  const label = tmuxPaneDisplayName(entry);
-  return entry.session && label.startsWith(`${entry.session}:`) ? label.slice(entry.session.length + 1) : label;
+export function tmuxPaneDetail(entry: TmuxSessionDto): string {
+  return entry.label ?? entry.name;
 }
 
 export function findTmuxPane(entries: TmuxSessionDto[], target: string): TmuxSessionDto | undefined {
@@ -87,9 +86,9 @@ export function tmuxSessionGroupHeader(entries: TmuxSessionDto[], index: number)
   return index === 0 || entries[index - 1]?.session !== session ? session : null;
 }
 
-// Status messages are built from pane targets; show readable pane names instead of "%12".
+// Status messages are built from pane targets; show window names instead of "%12".
 export function formatTmuxStatusText(text: string, entries: TmuxSessionDto[]): string {
-  const byTarget = new Map(entries.filter((entry) => entry.paneId).map((entry) => [entry.name, tmuxPaneShortName(entry)]));
+  const byTarget = new Map(entries.filter((entry) => entry.paneId).map((entry) => [entry.name, tmuxPaneDisplayName(entry)]));
   if (byTarget.size === 0) {
     return text;
   }

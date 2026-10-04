@@ -414,7 +414,6 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       clientCount,
       panePid: _panePid,
       currentPath: _currentPath,
-      paneTitle: _paneTitle,
       windowId: _windowId,
       ...sessionData
     } = session;
