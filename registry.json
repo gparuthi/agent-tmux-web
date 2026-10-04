@@ -52,6 +52,13 @@
         { "path": "src/client/TmuxTtyView.tsx", "type": "registry:file", "target": "~/src/client/TmuxTtyView.tsx" },
         { "path": "src/client/LinkifiedText.tsx", "type": "registry:file", "target": "~/src/client/LinkifiedText.tsx" },
         { "path": "src/client/NewAgentSheet.tsx", "type": "registry:file", "target": "~/src/client/NewAgentSheet.tsx" },
+        { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
+        { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
+        { "path": "src/shared/tmuxAgents.ts", "type": "registry:file", "target": "~/src/shared/tmuxAgents.ts" },
+        { "path": "src/client/tmuxSessionGroups.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionGroups.ts" },
+        { "path": "src/client/keyStripCombos.ts", "type": "registry:file", "target": "~/src/client/keyStripCombos.ts" },
+        { "path": "src/client/TmuxSessionList.tsx", "type": "registry:file", "target": "~/src/client/TmuxSessionList.tsx" },
+        { "path": "src/client/TmuxKeyStrip.tsx", "type": "registry:file", "target": "~/src/client/TmuxKeyStrip.tsx" },
         { "path": "src/client/ansi.ts", "type": "registry:file", "target": "~/src/client/ansi.ts" },
         { "path": "src/client/androidBridge.ts", "type": "registry:file", "target": "~/src/client/androidBridge.ts" },
         { "path": "src/client/androidConnectionSettings.ts", "type": "registry:file", "target": "~/src/client/androidConnectionSettings.ts" },
@@ -251,6 +258,41 @@
           "path": "src/client/NewAgentSheet.tsx",
           "type": "registry:file",
           "target": "~/src/client/NewAgentSheet.tsx"
+        },
+        {
+          "path": "src/server/claudePrompts.ts",
+          "type": "registry:file",
+          "target": "~/src/server/claudePrompts.ts"
+        },
+        {
+          "path": "src/server/tmuxLastInput.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tmuxLastInput.ts"
+        },
+        {
+          "path": "src/shared/tmuxAgents.ts",
+          "type": "registry:file",
+          "target": "~/src/shared/tmuxAgents.ts"
+        },
+        {
+          "path": "src/client/tmuxSessionGroups.ts",
+          "type": "registry:file",
+          "target": "~/src/client/tmuxSessionGroups.ts"
+        },
+        {
+          "path": "src/client/keyStripCombos.ts",
+          "type": "registry:file",
+          "target": "~/src/client/keyStripCombos.ts"
+        },
+        {
+          "path": "src/client/TmuxSessionList.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TmuxSessionList.tsx"
+        },
+        {
+          "path": "src/client/TmuxKeyStrip.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TmuxKeyStrip.tsx"
         },
         {
           "path": "src/client/ansi.ts",

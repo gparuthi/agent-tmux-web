@@ -39,6 +39,8 @@ export type TmuxSessionDto = {
   attached: boolean;
   viewerCount?: number;
   activityAtMs?: number;
+  // Owner's last keystroke into this pane: atw sends or a real terminal client (not pane output).
+  lastInputAtMs?: number;
   currentCommand?: string;
   status?: TmuxSessionStatusDto;
 };

@@ -12,6 +12,7 @@ import {
   buildTmuxCancelModeArgs,
   buildTmuxCreateSessionArgs,
   buildTmuxCapturePaneArgs,
+  buildTmuxKillPaneArgs,
   buildTmuxKillSessionArgs,
   buildTmuxListPanesArgs,
   buildTmuxPaneDisplayName,
@@ -23,14 +24,19 @@ import {
   listTmuxSessions,
   parseTmuxPanes,
   parseTmuxViewerCounts,
+  closeTmuxPane,
+  resolveClosableTmuxPane,
   resolveTmuxPaneEntry,
   resolveTmuxSessionName,
+  isAllowedTmuxKey,
+  sendTmuxKey,
   sendTmuxText,
   shortenTmuxPanePath,
   splitTmuxPaneTarget,
   TMUX_LIST_PANES_FORMAT,
   buildTmuxInterruptKeysArgs,
   buildTmuxPaneInModeArgs,
+  buildTmuxSendKeyArgs,
   buildTmuxSubmitKeysArgs,
   buildTmuxToolCommand,
   chunkTmuxLiteralText,
@@ -461,6 +467,47 @@ describe("tmux command builders", () => {
     expect(buildTmuxKillSessionArgs("codex-ui")).toEqual(["kill-session", "-t", "codex-ui"]);
   });
 
+  it("allows only the key strip's named tmux keys", () => {
+    for (const key of ["Escape", "Tab", "Enter", "Up", "Down", "Left", "Right", "C-a", "C-d", "C-z", "C-Up", "M-Left", "M-b", "M-B", "M-.", "M-;", "M-~"]) {
+      expect(isAllowedTmuxKey(key), key).toBe(true);
+    }
+    for (const key of ["", "C-A", "C-", "C-ab", "C-1", "C-Escape", "M-", "M- ", "M-ab", "M-\u00e9", "M-Escape", "S-Up", "C-M-a", "escape", "Enter ", " Enter", "PageUp", "F1", "a", "Enter;", "-X", "send-keys", 4, null, undefined]) {
+      expect(isAllowedTmuxKey(key), String(key)).toBe(false);
+    }
+  });
+
+  it("builds a single send-keys argv for an allowed key and rejects the rest with 400", () => {
+    expect(buildTmuxSendKeyArgs("%12", "C-d")).toEqual(["send-keys", "-t", "%12", "C-d"]);
+    expect(buildTmuxSendKeyArgs("%12", "Escape")).toEqual(["send-keys", "-t", "%12", "Escape"]);
+    expect(buildTmuxSendKeyArgs("%12", "M-;")).toEqual(["send-keys", "-t", "%12", "M-\\;"]);
+    expect(() => buildTmuxSendKeyArgs("%12", "C-d; kill-server")).toThrow(/Unsupported tmux key/);
+    try {
+      buildTmuxSendKeyArgs("%12", "-X");
+      expect.unreachable();
+    } catch (error) {
+      expect((error as { statusCode?: number }).statusCode).toBe(400);
+    }
+  });
+
+  it("closes only an exact listed pane target with kill-pane", () => {
+    const entry = (name: string, extra: Record<string, unknown> = {}) => ({
+      name, session: "main", windows: 1, created: "", attached: false, clientCount: 0, ...extra
+    });
+    const entries = [entry("%12", { paneId: "%12" }), entry("box--%3", { paneId: "%3" }), entry("legacy")];
+    expect(buildTmuxKillPaneArgs("%12")).toEqual(["kill-pane", "-t", "%12"]);
+    expect(resolveClosableTmuxPane(entries, "%12").name).toBe("%12");
+    expect(resolveClosableTmuxPane(entries, "box--%3").name).toBe("box--%3");
+    for (const requested of ["%99", "main", "legacy", "%12 ", "", 12, null, undefined]) {
+      expect(() => resolveClosableTmuxPane(entries, requested), String(requested)).toThrow(/Unknown tmux pane/);
+    }
+    try {
+      resolveClosableTmuxPane(entries, "main");
+      expect.unreachable();
+    } catch (error) {
+      expect((error as { statusCode?: number }).statusCode).toBe(400);
+    }
+  });
+
   it("builds pane mode detection and cancel args", () => {
     expect(buildTmuxPaneInModeArgs("codex-ui")).toEqual(["display-message", "-p", "-t", "codex-ui", "#{pane_in_mode}"]);
     expect(buildTmuxCancelModeArgs("codex-ui")).toEqual(["send-keys", "-t", "codex-ui", "-X", "cancel"]);
@@ -881,6 +928,34 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
 
     expect(inactiveOutput).toMatch(/^PANE_TARGET_MARK$/m);
     expect(await captureTmuxPane(active!.name, 50)).not.toContain("PANE_TARGET_MARK");
+  });
+
+  it("sends named control and meta keys, including an escaped M-;", async () => {
+    const pane = (await listTmuxSessions()).find((entry) => entry.session === "atwtest" && !entry.paneActive);
+    expect(pane).toBeDefined();
+    await sendTmuxText(pane!.name, "clear; cat -v", true, "enter");
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    for (const key of ["M-x", "M-;", "C-b", "Enter", "C-d"]) {
+      await sendTmuxKey(pane!.name, key);
+    }
+    let output = "";
+    for (let attempt = 0; attempt < 30 && !/\^\[x\^\[;\^B/.test(output); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      output = await captureTmuxPane(pane!.name, 50);
+    }
+    expect(output).toMatch(/\^\[x\^\[;\^B/);
+    await expect(sendTmuxKey(pane!.name, "kill-server")).rejects.toThrow(/Unsupported tmux key/);
+  });
+
+  it("closes one pane and leaves its sibling running", async () => {
+    await execFileAsync("tmux", ["new-session", "-d", "-s", "atwclose", "sh"]);
+    await execFileAsync("tmux", ["split-window", "-t", "atwclose", "sh"]);
+    const before = (await listTmuxSessions()).filter((entry) => entry.session === "atwclose");
+    expect(before).toHaveLength(2);
+    const victim = resolveClosableTmuxPane(await listTmuxSessions(), before[1]!.name);
+    await closeTmuxPane(victim.name);
+    const after = (await listTmuxSessions()).filter((entry) => entry.session === "atwclose");
+    expect(after.map((entry) => entry.name)).toEqual([before[0]!.name]);
   });
 
   it("captures ANSI colours, including 256-colour and truecolor, when asked", async () => {

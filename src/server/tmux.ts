@@ -9,10 +9,12 @@ import {
   type TmuxSessionStatusDto,
   type TmuxToolDto
 } from "../shared/api.js";
+import { displayTmuxPaneCommand } from "../shared/tmuxAgents.js";
 import { buildTmuxToolCommand, DEFAULT_TMUX_TOOLS } from "../shared/tmuxTools.js";
 import { isTmuxRawSessionName, type TerminalSize } from "./terminal.js";
 
 export { buildTmuxToolCommand } from "../shared/tmuxTools.js";
+export { displayTmuxPaneCommand } from "../shared/tmuxAgents.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -231,6 +233,23 @@ export function buildTmuxKillSessionArgs(session: string): string[] {
   return ["kill-session", "-t", session];
 }
 
+export function buildTmuxKillPaneArgs(paneTarget: string): string[] {
+  return ["kill-pane", "-t", paneTarget];
+}
+
+// Only an exact pane target from the current listing can be closed; session names never match.
+export function resolveClosableTmuxPane(entries: TmuxSession[], requested: unknown): TmuxSession {
+  const entry = typeof requested === "string" ? entries.find((candidate) => candidate.name === requested && candidate.paneId) : undefined;
+  if (!entry) {
+    throw new TmuxRequestError(`Unknown tmux pane: ${JSON.stringify(requested ?? null).slice(0, 40)}`);
+  }
+  return entry;
+}
+
+export async function closeTmuxPane(paneTarget: string): Promise<void> {
+  await execFileAsync("tmux", buildTmuxKillPaneArgs(paneTarget));
+}
+
 export function buildTmuxPaneInModeArgs(session: string): string[] {
   return ["display-message", "-p", "-t", session, "#{pane_in_mode}"];
 }
@@ -245,6 +264,25 @@ export function buildTmuxSubmitKeysArgs(session: string, submitKey: TmuxSubmitKe
 
 export function buildTmuxInterruptKeysArgs(session: string, interruptKey: TmuxInterruptKey): string[] {
   return ["send-keys", "-t", session, interruptKey === "escape" ? "Escape" : "C-c"];
+}
+
+// Named keys the key strip may send: Escape/Tab/Enter, arrows (optionally C-/M-), C-a..C-z, M-<printable ASCII>.
+const ALLOWED_TMUX_KEY_PATTERN = /^(?:Escape|Tab|Enter|(?:[CM]-)?(?:Up|Down|Left|Right)|C-[a-z]|M-[\x21-\x7e])$/;
+
+export class TmuxRequestError extends Error {
+  readonly statusCode = 400;
+}
+
+export function isAllowedTmuxKey(key: unknown): key is string {
+  return typeof key === "string" && ALLOWED_TMUX_KEY_PATTERN.test(key);
+}
+
+export function buildTmuxSendKeyArgs(session: string, key: string): string[] {
+  if (!isAllowedTmuxKey(key)) {
+    throw new TmuxRequestError(`Unsupported tmux key: ${JSON.stringify(key).slice(0, 40)}`);
+  }
+  // tmux treats a trailing ";" in an argument as a command separator unless it is escaped.
+  return ["send-keys", "-t", session, key.endsWith(";") ? `${key.slice(0, -1)}\\;` : key];
 }
 
 export function detectTmuxSubmitKey(output: string): TmuxSubmitKey {
@@ -510,11 +548,6 @@ export function buildTmuxPaneDisplayName(pane: {
   return pane.windowPanes > 1 ? `${windowName} \u00b7 pane ${pane.paneIndex}` : windowName;
 }
 
-export function displayTmuxPaneCommand(command: string | undefined): string {
-  const trimmed = command?.trim() ?? "";
-  // Claude Code sets its process title to its version number, e.g. "2.1.288".
-  return /^\d+\.\d+\.\d+$/.test(trimmed) ? "claude" : trimmed;
-}
 
 export function shortenTmuxPanePath(currentPath: string | undefined, homeDir: string | undefined = process.env.HOME): string {
   if (!currentPath) {
@@ -1284,6 +1317,12 @@ export async function sendTmuxText(session: string, text: string, enter: boolean
 export async function interruptTmuxPane(session: string, interruptKey: TmuxInterruptKey): Promise<void> {
   await exitTmuxModeIfNeeded(session);
   await execFileAsync("tmux", buildTmuxInterruptKeysArgs(session, interruptKey));
+}
+
+export async function sendTmuxKey(session: string, key: string): Promise<void> {
+  const args = buildTmuxSendKeyArgs(session, key);
+  await exitTmuxModeIfNeeded(session);
+  await execFileAsync("tmux", args);
 }
 
 async function exitTmuxModeIfNeeded(session: string): Promise<void> {

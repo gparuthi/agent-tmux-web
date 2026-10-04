@@ -19,6 +19,7 @@ import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../shared/tmuxStatus.js";
 import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
 import { resolveAuthToken } from "./authToken.js";
+import { ClaudePromptTimes } from "./claudePrompts.js";
 import { CodexBridge } from "./codexBridge.js";
 import {
   buildBrowserRawTerminalPolicy,
@@ -40,6 +41,7 @@ import {
   captureTmuxPane,
   captureTmuxPaneView,
   captureTmuxVisiblePane,
+  closeTmuxPane,
   createTmuxSession,
   detectTmuxInterruptKey,
   detectTmuxSubmitKey,
@@ -55,8 +57,10 @@ import {
   openTmuxTool,
   readTmuxHarnessStatuses,
   readTmuxViewerCounts,
+  resolveClosableTmuxPane,
   resolveTmuxPaneEntry,
   resolveTmuxSessionName,
+  sendTmuxKey,
   sendTmuxText,
   splitTmuxPaneTarget,
   type TmuxInterruptKey,
@@ -69,6 +73,7 @@ import {
   resolveUploadRoot,
   saveUploadedFileForClient
 } from "./uploads.js";
+import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
 
 const execFileAsync = promisify(execFile);
@@ -92,6 +97,8 @@ const sockets = new Set<WebSocket>();
 const rawTerminalClients = new Map<string, Map<string, number>>();
 // Grouped raw sessions by routed target, with the base session they join and a cleanup hook.
 const rawTerminalSessions = new Map<string, { baseSession: string; close: () => void }>();
+const claudePromptTimes = new ClaudePromptTimes();
+const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INPUT_FILE || DEFAULT_TMUX_LAST_INPUT_FILE);
 const recentEvents: unknown[] = [];
 const watchPollers = new Map<string, {
   id: string;
@@ -316,6 +323,7 @@ app.get("/api/tmux/agents", asyncHandler(async (_req, res) => {
 app.post("/api/tmux/agents/start", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const started = await startAgentInTmux(body.agent, body.cwd);
+  tmuxLastInput.record(started.pane);
   res.json({
     data: { ...started, sessions: await listTmuxSessionsWithStatus() } satisfies StartAgentResultDto
   });
@@ -345,9 +353,20 @@ app.post("/api/tmux/destroy", asyncHandler(async (req, res) => {
   });
 }));
 
+app.post("/api/tmux/close-pane", asyncHandler(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const entry = resolveClosableTmuxPane(await listTmuxSessions(), body.pane);
+  await closeTmuxPane(entry.name);
+  tmuxWatch.cancelWatch(entry.name);
+  res.json({
+    data: await listTmuxSessionsWithStatus()
+  });
+}));
+
 app.post("/api/tmux/open-codex", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const session = requireString(body.session, "session");
+  tmuxLastInput.record(session);
   await openCodexInTmux(session, {
     cwd: stringOrNull(body.cwd) ?? process.cwd(),
     model: stringOrNull(body.model)
@@ -366,6 +385,7 @@ app.post("/api/tmux/open-tool", asyncHandler(async (req, res) => {
     : null;
   const modeIds = Array.isArray(body.modeIds) ? stringArray(body.modeIds) : undefined;
   const command = configuredTool?.command ?? requireString(body.command, "command");
+  tmuxLastInput.record(session);
   await openTmuxTool(session, configuredTool ?? { command }, configuredTool ? modeIds : []);
   tmuxWatch.startWatch(session, configuredTool?.label ?? command);
   const capture = await captureTmuxPaneView(session, TMUX_CAPTURE_HISTORY_LINES);
@@ -376,6 +396,7 @@ app.post("/api/tmux/send", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const session = requireString(body.session, "session");
   const enter = body.enter !== false;
+  tmuxLastInput.record(session);
   await sendTmuxText(
     session,
     requireString(body.text, "text"),
@@ -391,10 +412,19 @@ app.post("/api/tmux/send", asyncHandler(async (req, res) => {
 app.post("/api/tmux/interrupt", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const session = requireString(body.session, "session");
+  tmuxLastInput.record(session);
   await interruptTmuxPane(session, await resolveTmuxInterruptKey(session, body.interruptKey));
   tmuxWatch.cancelWatch(session);
   const capture = await captureTmuxPaneView(session, TMUX_CAPTURE_HISTORY_LINES);
   res.json({ ok: true, session, ...capture } satisfies TmuxCaptureDto & { ok: true });
+}));
+
+app.post("/api/tmux/keys", asyncHandler(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const session = requireString(body.session, "session");
+  await sendTmuxKey(session, typeof body.key === "string" ? body.key : "");
+  tmuxLastInput.record(session);
+  res.json({ ok: true });
 }));
 
 app.post("/api/tmux/watch", asyncHandler(async (req, res) => {
@@ -435,8 +465,11 @@ app.get("/api/tmux/watch/status", asyncHandler(async (_req, res) => {
 
 async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | null): Promise<TmuxSessionDto[]> {
   const sessions = await listTmuxSessions();
-  const harnessStatuses = await readTmuxHarnessStatuses(sessions);
+  const [harnessStatuses, clientActivity] = await Promise.all([readTmuxHarnessStatuses(sessions), readTmuxClientActivity()]);
   const nowMs = Date.now();
+  // Local panes only: list-clients and Claude's session files describe this host's tmux server.
+  const localPanes = sessions.filter((session) => session.name === session.paneId);
+  const promptTimes = claudePromptTimes.get(localPanes.map((session) => ({ paneId: session.name, panePid: session.panePid })));
   return Promise.all(sessions.map(async (session) => {
     const {
       clientCount,
@@ -453,8 +486,15 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
     });
     const harnessStatus = harnessStatuses.get(session.name);
     const status = mergeTmuxSessionStatus(visibleStatus, harnessStatus);
+    const local = session.name === session.paneId;
+    const lastInputAtMs = latestTmuxInputAtMs(
+      tmuxLastInput.get(session.name),
+      local ? clientActivity.get(session.name) : undefined,
+      local ? promptTimes.get(session.name) : undefined
+    );
     return {
       ...sessionData,
+      ...(lastInputAtMs ? { lastInputAtMs } : {}),
       // Raw browsers attach through grouped sessions, so add other browsers' raw views explicitly.
       viewerCount: Math.max(0, clientCount + totalRawTerminalClientCount(session.name) - rawTerminalClientCount(excludedBrowserClientId, session.name)),
       status
@@ -666,6 +706,7 @@ tmuxWss.on("connection", async (socket, req) => {
 
     if (message.type === "input" && typeof message.data === "string") {
       child.stdin.write(message.data);
+      tmuxLastInput.record(session);
       if (/[\r\n]/.test(message.data)) {
         tmuxWatch.startWatch(session, "Tmux task");
       }
@@ -723,6 +764,7 @@ bridge.on("log", (line) => {
 server.listen(port, bindHost, async () => {
   console.log(`agent-tmux-web listening on http://${bindHost}:${port}`);
   startUploadCleanup();
+  void tmuxLastInput.load();
   void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
   if (codexAppServerAutostart) {

@@ -271,6 +271,8 @@ Common variables:
 - `AGENT_TMUX_WEB_AUTH_TOKEN_FILE`: read the token from this file instead, so it
   stays out of the process environment. The server refuses to start if the file
   is missing or empty. `AGENT_TMUX_WEB_AUTH_TOKEN` wins when both are set.
+- `AGENT_TMUX_WEB_LAST_INPUT_FILE`: where the per-pane "last input" times that
+  sort the session list are saved. Defaults to `~/.local/state/atw/last-input.json`.
 - `AGENT_TMUX_WEB_JSON_LIMIT`: request body limit for large pasted prompts and
   tmux sends. Defaults to `25mb`.
 - `AGENT_TMUX_WEB_UPLOAD_DIR`: upload directory. Defaults to

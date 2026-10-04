@@ -39,7 +39,7 @@ describe("responsive mobile CSS", () => {
     expect(mobileBlock).toContain("flex: 1 1 auto");
   });
 
-  it("keeps the mobile tmux toolbar stable with a direct TTY/Raw toggle and bell notify button", () => {
+  it("keeps the mobile tmux toolbar stable with a direct TTY/Raw toggle, pane actions and an overflow menu", () => {
     const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
     const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
     const mobileBlock = css.slice(css.indexOf("@media (max-width: 760px)"));
@@ -47,7 +47,11 @@ describe("responsive mobile CSS", () => {
     expect(css).toContain(".tmux-view-menu");
     expect(css).toContain(".tmux-view-menu-content");
     expect(css).toContain(".tmux-view-menu-caret");
-    expect(css).toContain(".tmux-notify-button");
+    expect(app).toContain('aria-label="More options"');
+    expect(app).toContain("<span>Browser notifications</span>");
+    expect(app).toContain("<span>Show all panes");
+    expect(app).toContain('aria-label="Close pane"');
+    expect(app).toContain('aria-label="Stop tmux task"');
     expect(app).toContain('className="tmux-view-toggle"');
     expect(app).toContain('Switch to ${terminalActive ? "TTY" : "Raw"} view');
     expect(app).not.toContain("tmux-view-picker-content");
@@ -58,7 +62,7 @@ describe("responsive mobile CSS", () => {
     expect(app).toContain(">App</span>");
     expect(app).toContain(">Connection settings</span>");
     expect(mobileBlock).toContain("max-width: 150px");
-    expect(mobileBlock).toContain("grid-template-columns: minmax(0, auto) 36px 36px minmax(0, 1fr) 36px");
+    expect(mobileBlock).toContain("grid-template-columns: repeat(5, 36px) minmax(0, 1fr) 36px");
     expect(mobileBlock).not.toContain("grid-template-columns: 36px 36px 36px 36px 36px 36px 36px minmax(0, 1fr)");
   });
 
@@ -98,13 +102,12 @@ describe("responsive mobile CSS", () => {
     expect(css).toContain(".tmux-opencode-tabs");
   });
 
-  it("routes destroy replacements through Raw without stale session updates", () => {
+  it("does not offer a one-tap control that kills a whole tmux session", () => {
     const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
 
-    expect(app).toContain("function applyDestroyedSessionReplacement");
-    expect(app.match(/applyDestroyedSessionReplacement\(nextSession\);/g)).toHaveLength(2);
-    expect(app).toContain("selectTmuxSession(nextSession.name)");
-    expect(app).toContain("selectedTmuxRef.current !== targetSession");
+    expect(app).not.toContain("/api/tmux/destroy");
+    expect(app).not.toContain("Destroy selected tmux session");
+    expect(app).not.toContain("applyDestroyedSessionReplacement");
   });
 
   it("uses current-operation guards for capture and CLI launch responses", () => {
@@ -242,7 +245,7 @@ describe("responsive mobile CSS", () => {
     expect(desktopBlock.text).toContain(".tmux-compact-bar .tmux-session-menu-button");
     expect(desktopBlock.text).toContain("display: none");
     expect(mobileBlock).toContain(".tmux-app-toolbar");
-    expect(mobileBlock).toContain("grid-template-columns: minmax(0, auto) 36px 36px minmax(0, 1fr) 36px");
+    expect(mobileBlock).toContain("grid-template-columns: repeat(5, 36px) minmax(0, 1fr) 36px");
     expect(mobileBlock).toContain(".tmux-menu.open");
   });
 

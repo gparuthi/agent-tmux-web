@@ -10,14 +10,16 @@ import {
   ArrowRight,
   ArrowUp,
   Bell,
+  BellOff,
   Bot,
   Check,
-  ChevronDown,
   CircleStop,
   CornerDownLeft,
   Copy,
   Cpu,
+  Ellipsis,
   Eye,
+  EyeOff,
   Folder,
   Keyboard,
   Menu,
@@ -30,15 +32,15 @@ import {
   Plus,
   RefreshCw,
   Send,
-  Settings,
   Sparkles,
+  SquareX,
   Sun,
   Terminal as TerminalIcon,
   Trash2,
   Wrench,
   X
 } from "lucide-react";
-import { ClipboardEvent, FormEvent, Fragment, KeyboardEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { ClipboardEvent, FormEvent, KeyboardEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   TMUX_CAPTURE_HISTORY_LINES,
@@ -103,16 +105,40 @@ import {
   findTmuxPaneForSession,
   formatTmuxStatusText,
   normalizeRequestedTmuxSession,
-  orderTmuxSessionsByPins,
   parsePinnedTmuxSessionNames,
   PINNED_TMUX_SESSIONS_STORAGE_KEY,
   readRequestedTmuxSession,
   removeRequestedTmuxSession,
-  tmuxPaneDetail,
   tmuxPaneDisplayName,
-  tmuxSessionGroupHeader,
+  tmuxPaneShortName,
   togglePinnedTmuxSessionName
 } from "./tmuxSessionTarget.js";
+import {
+  filterTmuxAgentPanes,
+  markTmuxPanesViewed,
+  parseTmuxPaneViews,
+  parseTmuxSessionGroupPreferences,
+  setTmuxSessionGroupCollapsed,
+  SHOW_ALL_TMUX_PANES_STORAGE_KEY,
+  TMUX_PANE_VIEWS_STORAGE_KEY,
+  TMUX_SESSION_GROUPS_STORAGE_KEY,
+  tmuxWindowPaneNames,
+  type TmuxPaneViews,
+  type TmuxSessionGroupPreferences
+} from "./tmuxSessionGroups.js";
+import { TmuxSessionList } from "./TmuxSessionList.js";
+import {
+  insertedCharacter,
+  isRawTypedCharacter,
+  rawKeyBytes,
+  tmuxKeyName,
+  toggleKeyStripModifier,
+  typedKeyFromBeforeInput,
+  typedKeyFromKeyDown,
+  type KeyStripKey,
+  type KeyStripModifier
+} from "./keyStripCombos.js";
+import { TmuxKeyStrip } from "./TmuxKeyStrip.js";
 import { NewAgentSheet } from "./NewAgentSheet.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
 import {
@@ -201,9 +227,9 @@ const DEMO_STATUS: AppStatus = {
   }
 };
 const DEMO_TMUX_SESSIONS: TmuxSessionDto[] = [
-  { name: "agent-demo", windows: 1, created: "Thu May 14 09:00:00 2026", attached: true, viewerCount: 1, status: { kind: "running", health: "green", title: "Running" } },
-  { name: "release-notes", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, status: { kind: "idle", health: "gray", title: "Idle" } },
-  { name: "infra-check", windows: 2, created: "Thu May 14 09:20:00 2026", attached: false, viewerCount: 0, status: { kind: "needs-permission", health: "amber", title: "Needs permission" } }
+  { name: "agent-demo", currentCommand: "codex", windows: 1, created: "Thu May 14 09:00:00 2026", attached: true, viewerCount: 1, status: { kind: "running", health: "green", title: "Running" } },
+  { name: "release-notes", currentCommand: "claude", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, status: { kind: "idle", health: "gray", title: "Idle" } },
+  { name: "infra-check", currentCommand: "opencode", windows: 2, created: "Thu May 14 09:20:00 2026", attached: false, viewerCount: 0, status: { kind: "needs-permission", health: "amber", title: "Needs permission" } }
 ];
 const DEMO_TMUX_TOOLS: TmuxToolDto[] = DEFAULT_TMUX_TOOLS;
 const DEMO_TMUX_OUTPUT = [
@@ -332,6 +358,9 @@ export function App() {
   const [customTmuxTools, setCustomTmuxTools] = useState<TmuxToolDto[]>(readInitialCustomTmuxTools);
   const [pinnedTmuxToolIds, setPinnedTmuxToolIds] = useState<string[]>(readInitialPinnedTmuxToolIds);
   const [pinnedTmuxSessionNames, setPinnedTmuxSessionNames] = useState<string[]>(readInitialPinnedTmuxSessionNames);
+  const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
+  const [tmuxPaneViews, setTmuxPaneViews] = useState<TmuxPaneViews>(readInitialTmuxPaneViews);
+  const [showAllTmuxPanes, setShowAllTmuxPanes] = useState(readInitialShowAllTmuxPanes);
   const [customTmuxToolFormOpen, setCustomTmuxToolFormOpen] = useState(false);
   const [newCustomTmuxToolLabel, setNewCustomTmuxToolLabel] = useState("");
   const [newCustomTmuxToolCommand, setNewCustomTmuxToolCommand] = useState("");
@@ -351,6 +380,9 @@ export function App() {
   const [uploadingTmuxFiles, setUploadingTmuxFiles] = useState(false);
   const [terminalStatus, setTerminalStatus] = useState(demoMode ? `${TMUX_VIEW_MODE_LABELS[readInitialDefaultTmuxViewMode()].toLowerCase()} view for agent-demo` : "");
   const [manualCaptureActive, setManualCaptureActive] = useState(false);
+  const [armedKeyModifier, setArmedKeyModifierState] = useState<KeyStripModifier | null>(null);
+  const armedKeyModifierRef = useRef<KeyStripModifier | null>(null);
+  const consumeArmedKeyRef = useRef<(typed: string) => boolean>(() => false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
@@ -411,6 +443,8 @@ export function App() {
     mobileInput: mobileRawInput,
     sessionSelected
   });
+  // Same strip under the input box on phones, where the soft keyboard has no Esc/Ctrl/arrows.
+  const showTmuxKeyStrip = showRawTerminalShortcuts || (showTmuxSendForm && mobileRawInput);
   const tmuxViewModeLabel = TMUX_VIEW_MODE_LABELS[tmuxViewMode];
   const tmuxToolGroups = useMemo(
     () => groupTmuxTools(tmuxTools, customTmuxTools, pinnedTmuxToolIds),
@@ -420,11 +454,13 @@ export function App() {
     () => [...tmuxToolGroups.pinned, ...tmuxToolGroups.unpinned],
     [tmuxToolGroups]
   );
-  const orderedTmuxSessions = useMemo(
-    () => orderTmuxSessionsByPins(tmuxSessions, pinnedTmuxSessionNames),
-    [pinnedTmuxSessionNames, tmuxSessions]
-  );
   const selectedTmuxEntry = useMemo(() => findTmuxPane(tmuxSessions, selectedTmux), [selectedTmux, tmuxSessions]);
+  const railTmuxPanes = useMemo(
+    () => filterTmuxAgentPanes(tmuxSessions, showAllTmuxPanes, selectedTmux),
+    [selectedTmux, showAllTmuxPanes, tmuxSessions]
+  );
+  const hiddenTmuxPaneCount = tmuxSessions.length - railTmuxPanes.length;
+  const selectedTmuxPinned = Boolean(selectedTmux) && pinnedTmuxSessionNames.includes(selectedTmux);
   const customTmuxToolIds = useMemo(() => new Set(customTmuxTools.map((tool) => tool.id)), [customTmuxTools]);
   const currentTmuxTool = useMemo(
     () => allTmuxTools.find((tool) => tool.id === selectedTmuxTool) ?? null,
@@ -620,6 +656,42 @@ export function App() {
   useEffect(() => {
     selectedTmuxRef.current = selectedTmux;
   }, [selectedTmux]);
+
+  // Arriving at or leaving a pane marks its output seen, so the rail dims it like tmux's activity flag.
+  const viewedTmuxPaneRef = useRef("");
+  useEffect(() => {
+    const previous = viewedTmuxPaneRef.current;
+    viewedTmuxPaneRef.current = selectedTmux;
+    const entries = tmuxSessionsRef.current;
+    const names = [...new Set([...tmuxWindowPaneNames(entries, previous), ...tmuxWindowPaneNames(entries, selectedTmux)])];
+    if (names.length === 0) {
+      return;
+    }
+    // Server timestamps can run ahead of a phone's clock; never record a view older than the output it saw.
+    const latestActivityAtMs = Math.max(0, ...entries.filter((entry) => names.includes(entry.name)).map((entry) => entry.activityAtMs ?? 0));
+    setTmuxPaneViews((current) => {
+      const next = markTmuxPanesViewed(current, names, Math.max(Date.now(), latestActivityAtMs));
+      writeStoredJson(TMUX_PANE_VIEWS_STORAGE_KEY, next);
+      return next;
+    });
+  }, [selectedTmux]);
+
+  // iOS soft keyboards report "Unidentified" keydowns, so an armed modifier also intercepts beforeinput.
+  useEffect(() => {
+    const input = tmuxInputRef.current;
+    if (!showTmuxSendForm || !input) {
+      return;
+    }
+    const interceptArmedInput = (event: InputEvent) => {
+      // Non-cancelable input falls through to onChange, which reverts it.
+      const typed = armedKeyModifierRef.current && event.cancelable ? typedKeyFromBeforeInput(event) : null;
+      if (typed && consumeArmedKeyRef.current(typed)) {
+        event.preventDefault();
+      }
+    };
+    input.addEventListener("beforeinput", interceptArmedInput);
+    return () => input.removeEventListener("beforeinput", interceptArmedInput);
+  }, [showTmuxSendForm, selectedTmux]);
 
   useEffect(() => {
     loadStatus().catch(reportError(setError));
@@ -999,6 +1071,9 @@ export function App() {
     let socket: WebSocket | null = null;
 
     const inputDisposable = terminal.onData((data) => {
+      if (armedKeyModifierRef.current && isRawTypedCharacter(data) && consumeArmedKeyRef.current(data)) {
+        return;
+      }
       if (socket?.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
@@ -1657,6 +1732,78 @@ export function App() {
     socket.send(JSON.stringify({ type: "input", data }));
   }
 
+  function setArmedKeyModifier(modifier: KeyStripModifier | null) {
+    armedKeyModifierRef.current = modifier;
+    setArmedKeyModifierState(modifier);
+  }
+
+  function toggleArmedKeyModifier(modifier: KeyStripModifier) {
+    const next = toggleKeyStripModifier(armedKeyModifierRef.current, modifier);
+    setArmedKeyModifier(next);
+    if (next) {
+      if (terminalActive) {
+        rawTerminalRef.current?.focus();
+      } else {
+        tmuxInputRef.current?.focus();
+      }
+    }
+  }
+
+  function pressKeyStripKey(key: KeyStripKey) {
+    const modifier = armedKeyModifierRef.current;
+    setArmedKeyModifier(null);
+    sendKeyStripCombo(key, modifier);
+  }
+
+  // The next typed character goes to the pane as a combo instead of into the input.
+  function consumeArmedKey(typed: string): boolean {
+    const modifier = armedKeyModifierRef.current;
+    if (!modifier) {
+      return false;
+    }
+    setArmedKeyModifier(null);
+    sendKeyStripCombo(typed, modifier);
+    return true;
+  }
+  consumeArmedKeyRef.current = consumeArmedKey;
+
+  function sendKeyStripCombo(key: string, modifier: KeyStripModifier | null) {
+    const modifierLabel = modifier === "ctrl" ? "Ctrl" : "Alt";
+    if (terminalActive) {
+      const bytes = rawKeyBytes(key, modifier);
+      if (bytes) {
+        sendRawTerminalData(bytes);
+      } else {
+        setTerminalStatus(`no ${modifierLabel}-${key} key`);
+      }
+      return;
+    }
+    const name = tmuxKeyName(key, modifier);
+    if (!name) {
+      setTerminalStatus(`no ${modifierLabel}-${key} key`);
+      return;
+    }
+    sendTmuxKey(name).catch(reportError(setError));
+  }
+
+  async function sendTmuxKey(key: string) {
+    const session = selectedTmux;
+    if (!session) {
+      return;
+    }
+    queueTmuxOutputBottomScroll();
+    if (demoMode) {
+      setTerminalStatus(`sent ${key} to ${session}`);
+      return;
+    }
+    await api<{ ok: true }>("/api/tmux/keys", {
+      method: "POST",
+      body: JSON.stringify({ session, key })
+    });
+    setTerminalStatus(`sent ${key} to ${session}`);
+    scheduleTmuxFollow(session);
+  }
+
   function sendTmuxViaTerminal(session: string, text: string): boolean {
     const socket = terminalSocketRef.current;
     if (!terminalActive || terminalSessionRef.current !== session || !socket || socket.readyState !== WebSocket.OPEN) {
@@ -1691,52 +1838,39 @@ export function App() {
     selectTmuxSession(findTmuxPaneForSession(result.data, sessionName)?.name ?? sessionName);
   }
 
+  async function closeSelectedTmuxPane() {
+    const target = selectedTmux;
+    const entry = findTmuxPane(tmuxSessions, target);
+    if (!entry?.paneId || !window.confirm(`Close pane "${tmuxPaneDisplayName(entry)}" (${tmuxPaneShortName(entry)})? Whatever runs in it is killed.`)) {
+      return;
+    }
+    closeTmuxSettingsMenu();
+    const remaining = demoMode
+      ? tmuxSessions.filter((pane) => pane.name !== target)
+      : (await api<{ data: TmuxSessionDto[] }>("/api/tmux/close-pane", {
+        method: "POST",
+        body: JSON.stringify({ pane: target })
+      })).data;
+    setTmuxSessions(remaining);
+    if (selectedTmuxRef.current !== target) {
+      return;
+    }
+    // Prefer another agent pane so the rail selection stays inside the default filter.
+    const next = defaultTmuxPaneSelection(filterTmuxAgentPanes(remaining, showAllTmuxPanes, "")) || defaultTmuxPaneSelection(remaining);
+    if (next) {
+      selectTmuxSession(next);
+      return;
+    }
+    selectedTmuxRef.current = "";
+    setSelectedTmux("");
+    setCapturedTmuxOutput("", undefined);
+    setTerminalStatus("no session selected");
+  }
+
   function handleAgentStarted(result: StartAgentResultDto) {
     setNewAgentOpen(false);
     setTmuxSessions(result.sessions);
     selectTmuxSession(result.pane);
-  }
-
-  async function destroySession() {
-    const targetSession = selectedTmux;
-    // Destroy kills the whole tmux session that owns the selected pane, never a single pane.
-    const ownerSession = findTmuxPane(tmuxSessions, targetSession)?.session ?? targetSession;
-    if (!targetSession || !window.confirm(`Destroy tmux session "${ownerSession}" and all its panes?`)) {
-      return;
-    }
-
-    if (demoMode) {
-      const remaining = tmuxSessions.filter((session) => session.name !== targetSession);
-      const nextSession = remaining[0] ?? null;
-      setTmuxSessions(remaining);
-      applyDestroyedSessionReplacement(nextSession);
-      return;
-    }
-
-    const result = await api<{ data: TmuxSessionDto[] }>("/api/tmux/destroy", {
-      method: "POST",
-      body: JSON.stringify({ session: ownerSession })
-    });
-    setTmuxSessions(result.data);
-    if (selectedTmuxRef.current !== targetSession) {
-      return;
-    }
-    const nextSession = findTmuxPane(result.data, defaultTmuxPaneSelection(result.data)) ?? null;
-    applyDestroyedSessionReplacement(nextSession);
-  }
-
-  function applyDestroyedSessionReplacement(nextSession: TmuxSessionDto | null) {
-    setCapturedTmuxOutput(nextSession && demoMode ? DEMO_TMUX_OUTPUT : "", nextSession && demoMode ? DEMO_TMUX_SIDEBAR : undefined);
-    if (nextSession) {
-      selectTmuxSession(nextSession.name);
-      return;
-    }
-
-    selectedTmuxRef.current = "";
-    setSelectedTmux("");
-    applyTmuxViewMode(defaultTmuxViewMode);
-    setTmuxMenuOpen(false);
-    setTerminalStatus("no session selected");
   }
 
   async function openSelectedTmuxTool() {
@@ -1873,15 +2007,26 @@ export function App() {
     setTerminalStatus(`${TMUX_VIEW_MODE_LABELS[mode].toLowerCase()} view for ${session}`);
   }
 
-  function tmuxStatusForSession(session: TmuxSessionDto) {
-    return session.status ?? { kind: "idle" as const, health: "gray" as const, title: "Idle" };
-  }
-
   function toggleTmuxSessionPin(sessionName: string) {
     const nextPinnedSessionNames = togglePinnedTmuxSessionName(pinnedTmuxSessionNames, sessionName);
     setPinnedTmuxSessionNames(nextPinnedSessionNames);
     writeStoredJson(PINNED_TMUX_SESSIONS_STORAGE_KEY, nextPinnedSessionNames);
     setTerminalStatus(`${nextPinnedSessionNames.includes(sessionName) ? "pinned" : "unpinned"} ${sessionName}`);
+  }
+
+  function toggleShowAllTmuxPanes() {
+    const next = !showAllTmuxPanes;
+    setShowAllTmuxPanes(next);
+    writeStoredValue(SHOW_ALL_TMUX_PANES_STORAGE_KEY, next ? "1" : "0");
+    setTerminalStatus(next ? "showing all panes" : "showing agent panes only");
+  }
+
+  function setTmuxSessionGroupCollapsedPreference(session: string, collapsed: boolean) {
+    setTmuxSessionGroupPreferences((current) => {
+      const next = setTmuxSessionGroupCollapsed(current, session, collapsed);
+      writeStoredJson(TMUX_SESSION_GROUPS_STORAGE_KEY, next);
+      return next;
+    });
   }
 
   function insertSkillName(skillName: string) {
@@ -2080,6 +2225,18 @@ export function App() {
   }
 
   function handleTmuxInputKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const typed = armedKeyModifierRef.current ? typedKeyFromKeyDown({
+      key: event.key,
+      keyCode: event.keyCode,
+      isComposing: event.nativeEvent.isComposing,
+      ctrlKey: event.ctrlKey,
+      metaKey: event.metaKey,
+      altKey: event.altKey
+    }) : null;
+    if (typed && consumeArmedKey(typed)) {
+      event.preventDefault();
+      return;
+    }
     if (shouldSubmitTextareaEnter(event)) {
       event.preventDefault();
       event.currentTarget.form?.requestSubmit();
@@ -2356,13 +2513,75 @@ export function App() {
               {terminalActive ? <Keyboard aria-hidden="true" size={15} /> : <Monitor aria-hidden="true" size={15} />}
               <span>{tmuxViewModeLabel}</span>
             </button>
+            <button
+              aria-label="Stop tmux task"
+              disabled={!selectedTmux}
+              title="Stop tmux task (Esc or Ctrl-C)"
+              type="button"
+              onClick={() => interruptTmux().catch(reportError(setError))}
+            >
+              <CircleStop aria-hidden="true" size={15} />
+            </button>
+            <button
+              aria-label={selectedTmuxPinned ? "Unpin this pane" : "Pin this pane"}
+              aria-pressed={selectedTmuxPinned}
+              className={selectedTmuxPinned ? "active" : ""}
+              disabled={!selectedTmux}
+              title={selectedTmuxPinned ? "Unpin this pane" : "Pin this pane to the top of the list"}
+              type="button"
+              onClick={() => toggleTmuxSessionPin(selectedTmux)}
+            >
+              <Pin aria-hidden="true" fill={selectedTmuxPinned ? "currentColor" : "none"} size={15} />
+            </button>
+            <button
+              aria-label="Refresh sessions and current view"
+              aria-busy={manualCaptureActive}
+              disabled={manualCaptureActive}
+              title="Refresh sessions and current view"
+              type="button"
+              onClick={refreshTmux}
+            >
+              <RefreshCw size={15} /> <span>Refresh</span>
+            </button>
+            <button
+              aria-label="Close pane"
+              className="tmux-close-pane-button"
+              disabled={!selectedTmuxEntry?.paneId}
+              title="Close pane (kills its process)"
+              type="button"
+              onClick={() => closeSelectedTmuxPane().catch(reportError(setError))}
+            >
+              <SquareX aria-hidden="true" size={15} />
+            </button>
+            <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
             <details className="tmux-view-menu tmux-settings-menu" ref={tmuxSettingsMenuRef}>
-              <summary aria-label="Open settings" title="Settings">
-                <Settings aria-hidden="true" size={15} />
-                <span className="tmux-view-menu-label">Settings</span>
-                <ChevronDown aria-hidden="true" className="tmux-view-menu-caret" size={15} />
+              <summary aria-label="More options" title="More options">
+                <Ellipsis aria-hidden="true" size={16} />
               </summary>
               <div className="tmux-view-menu-content tmux-settings-menu-content" role="menu">
+                <div className="tmux-view-menu-section tmux-settings-actions">
+                  <span>Panes</span>
+                  <button
+                    aria-checked={showAllTmuxPanes}
+                    className={showAllTmuxPanes ? "active" : ""}
+                    role="menuitemcheckbox"
+                    type="button"
+                    onClick={toggleShowAllTmuxPanes}
+                  >
+                    {showAllTmuxPanes ? <Eye size={15} /> : <EyeOff size={15} />}
+                    <span>Show all panes{hiddenTmuxPaneCount > 0 && !showAllTmuxPanes ? ` (${hiddenTmuxPaneCount} hidden)` : ""}</span>
+                  </button>
+                  <button
+                    aria-checked={tmuxNotificationsEnabled}
+                    className={tmuxNotificationsEnabled ? "active" : ""}
+                    role="menuitemcheckbox"
+                    type="button"
+                    onClick={() => toggleTmuxNotifications().catch(reportError(setError))}
+                  >
+                    {tmuxNotificationsEnabled ? <Bell size={15} /> : <BellOff size={15} />}
+                    <span>Browser notifications</span>
+                  </button>
+                </div>
                 <div className="tmux-view-menu-section">
                   <span>Theme</span>
                   <div className="tmux-settings-options two-column">
@@ -2418,26 +2637,6 @@ export function App() {
                 )}
               </div>
             </details>
-            <button
-              aria-label="Refresh sessions and current view"
-              aria-busy={manualCaptureActive}
-              disabled={manualCaptureActive}
-              title="Refresh sessions and current view"
-              type="button"
-              onClick={refreshTmux}
-            >
-              <RefreshCw size={15} /> <span>Refresh</span>
-            </button>
-            <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
-            <button
-              aria-label={tmuxNotificationsEnabled ? "Disable browser notifications" : "Enable browser notifications"}
-              className={`tmux-notify-button ${tmuxNotificationsEnabled ? "active" : ""}`}
-              title={tmuxNotificationsEnabled ? "Disable browser notifications" : "Enable browser notifications"}
-              type="button"
-              onClick={() => toggleTmuxNotifications().catch(reportError(setError))}
-            >
-              <Bell size={15} />
-            </button>
           </div>
         </div>
         <div className="tmux-control-rail">
@@ -2448,58 +2647,20 @@ export function App() {
               </button>
             )}
             <div className="tmux-rail-section-title">Sessions</div>
-            <div className="tmux-sessions">
-              {orderedTmuxSessions.map((session, index) => {
-                const sessionStatus = tmuxStatusForSession(session);
-                const pinned = pinnedTmuxSessionNames.includes(session.name);
-                const viewerCount = session.viewerCount ?? 0;
-                const groupHeader = tmuxSessionGroupHeader(orderedTmuxSessions, index);
-                return (
-                  <Fragment key={session.name}>
-                    {groupHeader && <div className="tmux-session-group-title">{groupHeader}</div>}
-                    <div className={`tmux-session-row ${selectedTmux === session.name ? "active" : ""}`}>
-                      <button
-                        className="tmux-session-select"
-                        title={`${tmuxPaneDisplayName(session)} (${tmuxPaneDetail(session)}): ${sessionStatus.title}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
-                        type="button"
-                        onClick={() => selectTmuxSession(session.name)}
-                      >
-                        <span
-                          aria-label={`${sessionStatus.title} status`}
-                          className={`tmux-session-status-dot ${sessionStatus.health}`}
-                          title={sessionStatus.title}
-                        />
-                        <span className="tmux-session-text">
-                          <span className="tmux-session-name">{tmuxPaneDisplayName(session)}</span>
-                          <span className="tmux-session-detail">{tmuxPaneDetail(session)}</span>
-                        </span>
-                        {viewerCount > 0 && (
-                          <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>
-                            <Eye aria-hidden="true" size={14} />
-                            {viewerCount > 1 && <span>{viewerCount}</span>}
-                          </span>
-                        )}
-                      </button>
-                      <button
-                        aria-label={pinned ? `Unpin ${tmuxPaneDisplayName(session)}` : `Pin ${tmuxPaneDisplayName(session)}`}
-                        aria-pressed={pinned}
-                        className={`tmux-session-pin ${pinned ? "active" : ""}`}
-                        title={pinned ? "Unpin pane" : "Pin pane to top"}
-                        type="button"
-                        onClick={() => toggleTmuxSessionPin(session.name)}
-                      >
-                        <Pin aria-hidden="true" fill={pinned ? "currentColor" : "none"} size={13} />
-                      </button>
-                    </div>
-                  </Fragment>
-                );
-              })}
-            </div>
+            <TmuxSessionList
+              groupPreferences={tmuxSessionGroupPreferences}
+              paneViews={tmuxPaneViews}
+              panes={railTmuxPanes}
+              pinnedNames={pinnedTmuxSessionNames}
+              selected={selectedTmux}
+              onSelect={selectTmuxSession}
+              onTogglePin={toggleTmuxSessionPin}
+              onToggleGroup={setTmuxSessionGroupCollapsedPreference}
+            />
             <div className="tmux-rail-section-title">New Session</div>
             <div className="tmux-actions">
               <input value={newTmuxName} onChange={(event) => setNewTmuxName(event.target.value)} placeholder="new session" />
               <button aria-label="Create tmux session" title="Create tmux session" type="button" onClick={() => createSession().catch(reportError(setError))}><Plus size={15} /></button>
-              <button aria-label="Destroy selected tmux session" title="Destroy selected tmux session" type="button" disabled={!selectedTmux} onClick={() => destroySession().catch(reportError(setError))}><Trash2 size={15} /></button>
             </div>
             <div className="tmux-rail-section-title">CLI Launcher</div>
             <div className="tmux-tool-actions">
@@ -2631,25 +2792,11 @@ export function App() {
               </button>
             )}
           </div>
-          {showRawTerminalShortcuts && (
-            <div className="tmux-soft-keys" aria-label="Raw terminal keys">
-              <button type="button" title="Escape" onClick={() => sendRawTerminalData("\x1b")}>Esc</button>
-              <button type="button" title="Tab" onClick={() => sendRawTerminalData("\t")}>Tab</button>
-              <button type="button" title="Ctrl-C" onClick={() => sendRawTerminalData("\x03")}>C-c</button>
-              <button type="button" title="Ctrl-D" onClick={() => sendRawTerminalData("\x04")}>C-d</button>
-              <button type="button" title="Ctrl-L" onClick={() => sendRawTerminalData("\x0c")}>C-l</button>
-              <button className="icon-key" aria-label="Arrow up" title="Arrow up" type="button" onClick={() => sendRawTerminalData("\x1b[A")}><ArrowUp size={15} /></button>
-              <button className="icon-key" aria-label="Arrow left" title="Arrow left" type="button" onClick={() => sendRawTerminalData("\x1b[D")}><ArrowLeft size={15} /></button>
-              <button className="icon-key" aria-label="Arrow down" title="Arrow down" type="button" onClick={() => sendRawTerminalData("\x1b[B")}><ArrowDown size={15} /></button>
-              <button className="icon-key" aria-label="Arrow right" title="Arrow right" type="button" onClick={() => sendRawTerminalData("\x1b[C")}><ArrowRight size={15} /></button>
-              <button type="button" title="Enter" onClick={() => sendRawTerminalData("\r")}><CornerDownLeft size={15} /> Enter</button>
-            </div>
+          {showTmuxKeyStrip && (
+            <TmuxKeyStrip armed={armedKeyModifier} onKey={pressKeyStripKey} onToggleModifier={toggleArmedKeyModifier} />
           )}
           {showTmuxSendForm && (
             <form className="tmux-send" onSubmit={(event) => { event.preventDefault(); sendTmux().catch(reportError(setError)); }}>
-              <button aria-label="Stop tmux task" title="Stop tmux task" type="button" onClick={() => interruptTmux().catch(reportError(setError))}>
-                <CircleStop size={15} />
-              </button>
               <button
                 aria-label="Attach files"
                 disabled={uploadingTmuxFiles}
@@ -2676,6 +2823,11 @@ export function App() {
                 rows={1}
                 value={tmuxInput}
                 onChange={(event) => {
+                  // iOS fallback when keydown/beforeinput could not intercept: leaving state alone reverts the text.
+                  const typed = armedKeyModifierRef.current ? insertedCharacter(tmuxInput, event.target.value) : null;
+                  if (typed && consumeArmedKey(typed)) {
+                    return;
+                  }
                   setTmuxInput(event.target.value);
                   resizeTmuxInput(event.currentTarget);
                 }}
@@ -2893,6 +3045,24 @@ function readInitialPinnedTmuxToolIds(): string[] {
 
 function readInitialPinnedTmuxSessionNames(): string[] {
   return parsePinnedTmuxSessionNames(readStoredValue(PINNED_TMUX_SESSIONS_STORAGE_KEY));
+}
+
+function readInitialTmuxSessionGroupPreferences(): TmuxSessionGroupPreferences {
+  return parseTmuxSessionGroupPreferences(readStoredValue(TMUX_SESSION_GROUPS_STORAGE_KEY));
+}
+
+function readInitialTmuxPaneViews(): TmuxPaneViews {
+  const stored = readStoredValue(TMUX_PANE_VIEWS_STORAGE_KEY);
+  const views = parseTmuxPaneViews(stored, Date.now());
+  if (!stored) {
+    // First run: only output from now on counts as new.
+    writeStoredJson(TMUX_PANE_VIEWS_STORAGE_KEY, views);
+  }
+  return views;
+}
+
+function readInitialShowAllTmuxPanes(): boolean {
+  return readStoredValue(SHOW_ALL_TMUX_PANES_STORAGE_KEY) === "1";
 }
 
 function readInitialDefaultTmuxViewMode(): TmuxViewMode {
