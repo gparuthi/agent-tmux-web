@@ -52,6 +52,7 @@
         { "path": "src/client/TmuxTtyView.tsx", "type": "registry:file", "target": "~/src/client/TmuxTtyView.tsx" },
         { "path": "src/client/LinkifiedText.tsx", "type": "registry:file", "target": "~/src/client/LinkifiedText.tsx" },
         { "path": "src/client/NewAgentSheet.tsx", "type": "registry:file", "target": "~/src/client/NewAgentSheet.tsx" },
+        { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
         { "path": "src/shared/tmuxAgents.ts", "type": "registry:file", "target": "~/src/shared/tmuxAgents.ts" },
@@ -262,6 +263,11 @@
           "path": "src/client/NewAgentSheet.tsx",
           "type": "registry:file",
           "target": "~/src/client/NewAgentSheet.tsx"
+        },
+        {
+          "path": "src/server/agentRows.ts",
+          "type": "registry:file",
+          "target": "~/src/server/agentRows.ts"
         },
         {
           "path": "src/server/claudePrompts.ts",

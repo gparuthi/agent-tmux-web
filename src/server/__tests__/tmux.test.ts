@@ -157,10 +157,10 @@ describe("OpenCode harness status", () => {
       { sessionId: "ses_empty", messageId: null, completedAt: null, choicePending: 0 }
     ]));
 
-    expect(states.get("ses_choice")).toEqual({ kind: "question", health: "amber", title: "Choice required" });
-    expect(states.get("ses_running")).toEqual({ kind: "running", health: "green", title: "Running" });
-    expect(states.get("ses_idle")).toEqual({ kind: "idle", health: "gray", title: "Idle" });
-    expect(states.get("ses_empty")).toEqual({ kind: "idle", health: "gray", title: "Idle" });
+    expect(states.get("ses_choice")).toEqual({ kind: "blocked", title: "Asking a question", source: "atw" });
+    expect(states.get("ses_running")).toEqual({ kind: "working", title: "Working", source: "atw" });
+    expect(states.get("ses_idle")).toEqual({ kind: "idle", title: "Idle", source: "atw" });
+    expect(states.get("ses_empty")).toEqual({ kind: "idle", title: "Idle", source: "atw" });
   });
 
   it("matches an automatic OpenCode process only to one root session title in its directory", () => {

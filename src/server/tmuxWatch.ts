@@ -1,4 +1,5 @@
 import type { TmuxWatchDto, TmuxWatchEvent } from "../shared/api.js";
+import { looksLikeTmuxWaitingForInput } from "../shared/tmuxActivity.js";
 import { classifyTmuxStatus } from "../shared/tmuxStatus.js";
 
 export const TMUX_WATCH_CAPTURE_LINES = 220;
@@ -300,16 +301,14 @@ function notificationPhase(
   currentCommand: string | undefined,
   output: string
 ): TmuxNotificationPhase {
-  if (kind === "needs-permission" || kind === "question") {
+  if (kind === "blocked") {
     return "waiting-for-input";
   }
-  if (kind === "waiting") {
+  // A finished turn or a prompt waiting on screen asks for input, unless a shell just got its prompt back.
+  if (kind === "done" || (kind === "idle" && looksLikeTmuxWaitingForInput(output))) {
     return currentCommand && isShellTmuxCommand(currentCommand) && looksLikeReturnedShellPrompt(output)
       ? "idle"
       : "waiting-for-input";
-  }
-  if (kind === "error" && currentCommand && isShellTmuxCommand(currentCommand) && looksLikeReturnedShellPrompt(output)) {
-    return "idle";
   }
   if (kind === "idle") {
     if (currentCommand && !isIdleCapableTmuxCommand(currentCommand)) {

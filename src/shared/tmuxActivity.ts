@@ -9,6 +9,15 @@ export function looksLikeTmuxWorking(output: string): boolean {
   return lastWorkingLine >= lastWaitingLineIndex(tail);
 }
 
+// A finished turn ("Worked for 2m", "Goal achieved", "Task complete") with nothing newer asking or working.
+export function looksLikeTmuxDone(output: string): boolean {
+  const tail = meaningfulTail(output, 12);
+  const lastCompletionLine = lastIndexWhere(tail, isCompletionLine);
+  return lastCompletionLine !== -1
+    && lastCompletionLine > lastIndexWhere(tail, isWorkingLine)
+    && lastCompletionLine > lastIndexWhere(tail, isConfirmationPromptLine);
+}
+
 export function looksLikeTmuxWaitingForInput(output: string): boolean {
   if (!output.trim()) {
     return false;
@@ -27,8 +36,7 @@ function cleanOutput(output: string): string {
 
 function isDecorativeLine(line: string): boolean {
   const compact = line.replace(/\s/g, "");
-  return /^[╭╰├┤│─━═└┘┌┐┴┬┼-]{5,}$/.test(compact)
-    || /^worked for \d/i.test(line);
+  return /^[╭╰├┤│─━═└┘┌┐┴┬┼-]{5,}$/.test(compact);
 }
 
 function meaningfulTail(output: string, lineCount: number): string[] {
@@ -49,7 +57,8 @@ function isWorkingLine(line: string): boolean {
 
 function isCompletionLine(line: string): boolean {
   return /\bgoal achieved\b/i.test(line)
-    || /^worked for \d/i.test(line)
+    // Codex draws "─ Worked for 1m ─", Claude "✻ Worked for 2m".
+    || /^(?:[^\w\s]+\s*)?worked for \d/i.test(line)
     || /\btask complete\b/i.test(line);
 }
 

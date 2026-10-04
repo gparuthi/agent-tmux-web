@@ -16,9 +16,9 @@ const pane = (name: string, session: string, extra: Partial<TmuxSessionDto> = {}
 });
 
 const panes = [
-  pane("%1", "main", { displayName: "build agent", status: { kind: "running", health: "green", title: "Running" } }),
+  pane("%1", "main", { displayName: "build agent", status: { kind: "working", title: "Working" } }),
   pane("%2", "gp", { displayName: "notes" }),
-  pane("%3", "_hidden", { displayName: "shim", status: { kind: "error", health: "red", title: "Error" } }),
+  pane("%3", "_hidden", { displayName: "shim", status: { kind: "blocked", title: "Needs permission" } }),
   pane("%4", "_hidden", { displayName: "worker" })
 ];
 
@@ -45,10 +45,10 @@ describe("TmuxSessionList", () => {
 
     expect(html).toContain('aria-expanded="true" aria-label="main, 1 pane"');
     expect(html).toContain('aria-expanded="true" aria-label="gp, 1 pane"');
-    expect(html).toContain('aria-expanded="false" aria-label="_hidden, 2 panes, Error"');
+    expect(html).toContain('aria-expanded="false" aria-label="_hidden, 2 panes, Needs permission"');
     expect(html).toContain("build agent");
     expect(html).not.toContain("worker");
-    expect(html).toContain('class="tmux-session-status-dot red"');
+    expect(html).toContain('class="tmux-session-status-dot blocked"');
     expect(html).toContain('<span class="tmux-session-detail">0.0 · zsh · ~/work</span>');
   });
 
@@ -56,7 +56,7 @@ describe("TmuxSessionList", () => {
     const html = render("%4");
 
     expect(html).toContain("tmux-session-group-header contains-active");
-    expect(html).toContain("_hidden, 2 panes, Error, selected pane inside");
+    expect(html).toContain("_hidden, 2 panes, Needs permission, selected pane inside");
     expect(html).not.toContain("worker");
   });
 
@@ -65,7 +65,7 @@ describe("TmuxSessionList", () => {
 
     expect(html).toContain('aria-expanded="true" aria-label="_hidden, 2 panes"');
     expect(html).toContain("worker");
-    expect(html).toContain('aria-expanded="false" aria-label="main, 1 pane, Running"');
+    expect(html).toContain('aria-expanded="false" aria-label="main, 1 pane, Working"');
     expect(html).not.toContain("build agent");
   });
 
@@ -76,7 +76,7 @@ describe("TmuxSessionList", () => {
     expect(html.match(/>worker</g)).toHaveLength(1);
     expect(html).toContain('aria-label="Unpin worker"');
     expect(html).toContain('<span class="tmux-session-detail">_hidden:0.0 · zsh · ~/work</span>');
-    expect(html).toContain('aria-label="_hidden, 1 pane, Error"');
+    expect(html).toContain('aria-label="_hidden, 1 pane, Needs permission"');
   });
 
   it("dims rows and headers unless a pane has output since it was last viewed", () => {
@@ -90,7 +90,7 @@ describe("TmuxSessionList", () => {
     expect(html).toContain('class="tmux-session-row active "');
     expect(html).toContain('class="tmux-session-row  "');
     expect(html).toContain('aria-label="gp, 1 pane"');
-    expect(html).toContain('aria-label="_hidden, 1 pane, Idle, new output"');
+    expect(html).toContain('aria-label="_hidden, 1 pane, Unknown, new output"');
     expect(html).toMatch(/tmux-session-group-header +unseen/);
     expect(html).not.toContain('aria-label="main, 1 pane, new output"');
   });

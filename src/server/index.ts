@@ -16,10 +16,11 @@ import {
   type TmuxSessionDto
 } from "../shared/api.js";
 import { describeCodexNotification } from "../shared/codexEvents.js";
-import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../shared/tmuxStatus.js";
+import { classifyTmuxStatus, resolveTmuxSessionStatus } from "../shared/tmuxStatus.js";
 import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
 import { createAuthMiddleware, isAuthorizedWebSocketRequest } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
+import { AgentRowsCache } from "./agentRows.js";
 import { ClaudePromptTimes } from "./claudePrompts.js";
 import { CodexBridge } from "./codexBridge.js";
 import { readTmuxPaneAgents } from "./paneAgents.js";
@@ -101,6 +102,7 @@ const rawTerminalClients = new Map<string, Map<string, number>>();
 // Grouped raw sessions by routed target, with the base session they join and a cleanup hook.
 const rawTerminalSessions = new Map<string, { baseSession: string; close: () => void }>();
 const claudePromptTimes = new ClaudePromptTimes();
+const agentRowsCache = new AgentRowsCache();
 const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INPUT_FILE || DEFAULT_TMUX_LAST_INPUT_FILE);
 const recentEvents: unknown[] = [];
 const watchPollers = new Map<string, {
@@ -463,10 +465,11 @@ app.get("/api/tmux/watch/status", asyncHandler(async (_req, res) => {
 
 async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | null): Promise<TmuxSessionDto[]> {
   const sessions = await listTmuxSessions();
-  const [harnessStatuses, clientActivity, paneAgents] = await Promise.all([
+  const [harnessStatuses, clientActivity, paneAgents, gpmonStatuses] = await Promise.all([
     readTmuxHarnessStatuses(sessions),
     readTmuxClientActivity(),
-    readTmuxPaneAgents(sessions)
+    readTmuxPaneAgents(sessions),
+    agentRowsCache.statuses()
   ]);
   const nowMs = Date.now();
   // Local panes only: list-clients and Claude's session files describe this host's tmux server.
@@ -486,9 +489,13 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       nowMs,
       output
     });
-    const harnessStatus = harnessStatuses.get(session.name);
-    const status = mergeTmuxSessionStatus(visibleStatus, harnessStatus);
     const local = session.name === session.paneId;
+    // gpmon's cache describes this host's tmux server, so shim panes keep atw's heuristics.
+    const status = resolveTmuxSessionStatus(
+      local ? gpmonStatuses.get(session.name) : undefined,
+      visibleStatus,
+      harnessStatuses.get(session.name)
+    );
     const lastInputAtMs = latestTmuxInputAtMs(
       tmuxLastInput.get(session.name),
       local ? clientActivity.get(session.name) : undefined,

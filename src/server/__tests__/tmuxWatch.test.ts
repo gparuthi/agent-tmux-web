@@ -162,6 +162,26 @@ describe("tmux watch store", () => {
     expect(await store.pollOnce()).toEqual([]);
   });
 
+  it("notifies blocked and done agents as needing input", async () => {
+    let output = "• Working (2s • esc to interrupt)";
+    const store = new TmuxWatchStore({
+      initialEventId: 1,
+      minAgeMs: 0,
+      confirmationPolls: 1,
+      now: () => 10_000,
+      listSessions: async () => [{ name: "claude", currentCommand: "claude", activityAtMs: 10_000 }],
+      capture: async () => output
+    });
+
+    await store.pollOnce();
+    output = "Allow this command? [y/N]";
+    expect(await store.pollOnce()).toMatchObject([{ state: "waiting-for-input", session: "claude" }]);
+    output = "• Working (5s • esc to interrupt)";
+    expect(await store.pollOnce()).toEqual([]);
+    output = "Answer.\n✻ Worked for 2m 3s";
+    expect(await store.pollOnce()).toMatchObject([{ state: "waiting-for-input", session: "claude" }]);
+  });
+
   it("keeps shell questions without a returned prompt in the input-needed state", async () => {
     let output = "running shell step";
     const store = new TmuxWatchStore({

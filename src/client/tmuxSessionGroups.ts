@@ -1,4 +1,4 @@
-import type { TmuxSessionDto, TmuxSessionStatusDto, TmuxSessionStatusHealth } from "../shared/api.js";
+import type { TmuxSessionDto, TmuxSessionStatusDto, TmuxSessionStatusKind } from "../shared/api.js";
 import { tmuxEntryAgent } from "../shared/tmuxAgents.js";
 
 export const TMUX_SESSION_GROUPS_STORAGE_KEY = "agent-tmux-web.session-groups";
@@ -27,11 +27,11 @@ export type GroupedTmuxPanes = {
   groups: TmuxSessionGroup[];
 };
 
-const IDLE_STATUS: TmuxSessionStatusDto = { kind: "idle", health: "gray", title: "Idle" };
-const HEALTH_ATTENTION_RANK: Record<TmuxSessionStatusHealth, number> = { red: 3, amber: 2, green: 1, gray: 0 };
+const UNKNOWN_STATUS: TmuxSessionStatusDto = { kind: "unknown", title: "Unknown" };
+const STATUS_ATTENTION_RANK: Record<TmuxSessionStatusKind, number> = { blocked: 4, working: 3, done: 2, idle: 1, unknown: 0 };
 
 export function tmuxPaneStatus(entry: TmuxSessionDto): TmuxSessionStatusDto {
-  return entry.status ?? IDLE_STATUS;
+  return entry.status ?? UNKNOWN_STATUS;
 }
 
 // Agent panes only, unless showing all; the selected pane stays until the owner navigates away.
@@ -74,12 +74,12 @@ export function groupTmuxPanes(entries: TmuxSessionDto[], pinnedNames: string[])
   return { pinned, groups: byLastInput(ordered, (group) => lastInputAtMs(group.panes)) };
 }
 
-// The most attention-worthy status wins: red, then amber, then green, then gray; ties keep pane order.
+// The most attention-worthy status wins: blocked, working, done, idle, then unknown; ties keep pane order.
 export function aggregateTmuxSessionStatus(panes: TmuxSessionDto[]): TmuxSessionStatusDto {
   return panes.map(tmuxPaneStatus).reduce<TmuxSessionStatusDto | null>(
-    (best, status) => !best || HEALTH_ATTENTION_RANK[status.health] > HEALTH_ATTENTION_RANK[best.health] ? status : best,
+    (best, status) => !best || STATUS_ATTENTION_RANK[status.kind] > STATUS_ATTENTION_RANK[best.kind] ? status : best,
     null
-  ) ?? IDLE_STATUS;
+  ) ?? UNKNOWN_STATUS;
 }
 
 // Inside a group the "session:" prefix of the pane label is redundant.

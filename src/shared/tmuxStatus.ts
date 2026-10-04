@@ -1,5 +1,5 @@
-import type { TmuxSessionStatusDto, TmuxSessionStatusHealth, TmuxSessionStatusKind } from "./api.js";
-import { looksLikeTmuxWaitingForInput, looksLikeTmuxWorking } from "./tmuxActivity.js";
+import type { TmuxSessionStatusDto, TmuxSessionStatusKind } from "./api.js";
+import { looksLikeTmuxDone, looksLikeTmuxWorking } from "./tmuxActivity.js";
 
 export type TmuxStatusInput = {
   activityAtMs?: number | null;
@@ -10,45 +10,69 @@ export type TmuxStatusInput = {
 
 export const DEFAULT_RUNNING_ACTIVITY_WINDOW_MS = 5 * 60 * 1000;
 
+export const TMUX_STATUS_TITLES: Record<TmuxSessionStatusKind, string> = {
+  working: "Working",
+  blocked: "Blocked",
+  done: "Done",
+  idle: "Idle",
+  unknown: "Unknown"
+};
+
 const ANSI_PATTERN = /\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])/g;
 const OSC_PATTERN = /\u001b\][^\u0007]*(?:\u0007|\u001b\\)/g;
 
+// atw's own screen heuristics, the fallback when gpmon has no fresh row for a pane.
 export function classifyTmuxStatus(input: TmuxStatusInput): TmuxSessionStatusDto {
   const output = input.output ?? "";
   const signalText = meaningfulSignalLines(output).slice(-12).join("\n");
-  const activeRecently = isActiveRecently(input);
 
-  if (looksLikeTmuxWorking(output) && activeRecently) {
-    return status("running");
+  if (looksLikeTmuxWorking(output) && isActiveRecently(input)) {
+    return tmuxStatus("working");
   }
 
   if (looksLikePermissionPrompt(signalText)) {
-    return status("needs-permission");
+    return tmuxStatus("blocked", "Needs permission");
   }
 
   if (looksLikeQuestion(signalText)) {
-    return status("question");
+    return tmuxStatus("blocked", "Asking a question");
   }
 
-  if (looksLikeError(actionablePromptLines(signalText).join("\n"))) {
-    return status("error");
+  if (looksLikeTmuxDone(output)) {
+    return tmuxStatus("done");
   }
 
-  if (looksLikeTmuxWaitingForInput(output)) {
-    return status("waiting");
-  }
-
-  return status("idle");
+  return tmuxStatus("idle");
 }
 
+// A visible prompt on screen outranks the opencode harness; otherwise the harness knows better.
 export function mergeTmuxSessionStatus(
   visibleStatus: TmuxSessionStatusDto,
   harnessStatus?: TmuxSessionStatusDto
 ): TmuxSessionStatusDto {
-  if (!harnessStatus || visibleStatus.kind === "needs-permission" || visibleStatus.kind === "question" || visibleStatus.kind === "error") {
+  if (!harnessStatus || visibleStatus.kind === "blocked") {
     return visibleStatus;
   }
   return harnessStatus;
+}
+
+// gpmon's fresh row wins; a bare "blocked" borrows the screen's reason when the screen agrees.
+export function resolveTmuxSessionStatus(
+  gpmonStatus: TmuxSessionStatusDto | undefined,
+  visibleStatus: TmuxSessionStatusDto,
+  harnessStatus?: TmuxSessionStatusDto
+): TmuxSessionStatusDto {
+  if (!gpmonStatus) {
+    return mergeTmuxSessionStatus(visibleStatus, harnessStatus);
+  }
+  if (gpmonStatus.kind === "blocked" && visibleStatus.kind === "blocked") {
+    return { ...gpmonStatus, title: visibleStatus.title };
+  }
+  return gpmonStatus;
+}
+
+export function tmuxStatus(kind: TmuxSessionStatusKind, title = TMUX_STATUS_TITLES[kind]): TmuxSessionStatusDto {
+  return { kind, title, source: "atw" };
 }
 
 function isActiveRecently(input: TmuxStatusInput): boolean {
@@ -58,44 +82,6 @@ function isActiveRecently(input: TmuxStatusInput): boolean {
   const nowMs = input.nowMs ?? Date.now();
   const windowMs = input.runningActivityWindowMs ?? DEFAULT_RUNNING_ACTIVITY_WINDOW_MS;
   return nowMs - input.activityAtMs <= windowMs;
-}
-
-function status(kind: TmuxSessionStatusKind): TmuxSessionStatusDto {
-  return {
-    kind,
-    health: healthForKind(kind),
-    title: titleForKind(kind)
-  };
-}
-
-function healthForKind(kind: TmuxSessionStatusKind): TmuxSessionStatusHealth {
-  if (kind === "running") {
-    return "green";
-  }
-  if (kind === "error") {
-    return "red";
-  }
-  if (kind === "idle" || kind === "waiting") {
-    return "gray";
-  }
-  return "amber";
-}
-
-function titleForKind(kind: TmuxSessionStatusKind): string {
-  switch (kind) {
-    case "needs-permission":
-      return "Needs permission";
-    case "question":
-      return "Choice required";
-    case "error":
-      return "Error";
-    case "waiting":
-      return "Idle";
-    case "running":
-      return "Running";
-    case "idle":
-      return "Idle";
-  }
 }
 
 function meaningfulSignalLines(output: string): string[] {
@@ -137,10 +123,6 @@ function actionablePromptLines(text: string): string[] {
     }
   }
   return lines.slice(latestReadyFooter + 1);
-}
-
-function looksLikeError(text: string): boolean {
-  return /\b(error|failed|failure|exception|traceback|exit code [1-9]\d*|command not found)\b/i.test(text);
 }
 
 function isDecorativeLine(line: string): boolean {

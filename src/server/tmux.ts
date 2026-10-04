@@ -10,6 +10,7 @@ import {
   type TmuxToolDto
 } from "../shared/api.js";
 import { displayTmuxPaneCommand } from "../shared/tmuxAgents.js";
+import { tmuxStatus } from "../shared/tmuxStatus.js";
 import { buildTmuxToolCommand, DEFAULT_TMUX_TOOLS } from "../shared/tmuxTools.js";
 import { isTmuxRawSessionName, type TerminalSize } from "./terminal.js";
 
@@ -738,14 +739,14 @@ export function parseOpenCodeSessionStates(serialized: string): Map<string, Tmux
       continue;
     }
     if (Number(row.choicePending) > 0) {
-      states.set(row.sessionId, { kind: "question", health: "amber", title: "Choice required" });
+      states.set(row.sessionId, tmuxStatus("blocked", "Asking a question"));
       continue;
     }
     if (typeof row.messageId === "string" && row.messageId && row.completedAt == null) {
-      states.set(row.sessionId, { kind: "running", health: "green", title: "Running" });
+      states.set(row.sessionId, tmuxStatus("working"));
       continue;
     }
-    states.set(row.sessionId, { kind: "idle", health: "gray", title: "Idle" });
+    states.set(row.sessionId, tmuxStatus("idle"));
   }
   return states;
 }

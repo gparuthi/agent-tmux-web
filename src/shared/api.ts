@@ -47,14 +47,15 @@ export type TmuxSessionDto = {
   status?: TmuxSessionStatusDto;
 };
 
-export type TmuxSessionStatusKind = "needs-permission" | "question" | "error" | "waiting" | "running" | "idle";
-
-export type TmuxSessionStatusHealth = "green" | "amber" | "red" | "gray";
+// Same five states and colours as gpmon's agents panel.
+export type TmuxSessionStatusKind = "working" | "blocked" | "done" | "idle" | "unknown";
 
 export type TmuxSessionStatusDto = {
   kind: TmuxSessionStatusKind;
-  health: TmuxSessionStatusHealth;
+  // Short tooltip text, e.g. "Needs permission", "Asking a question", "Idle 12m".
   title: string;
+  // "gpmon" when read from gpmon's agent-rows cache, "atw" for atw's own fallback heuristics.
+  source?: "gpmon" | "atw";
 };
 
 export type TmuxCaptureDto = {

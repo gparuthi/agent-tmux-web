@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { looksLikeTmuxWaitingForInput, looksLikeTmuxWorking } from "../../shared/tmuxActivity.js";
-import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../../shared/tmuxStatus.js";
+import { looksLikeTmuxDone, looksLikeTmuxWaitingForInput, looksLikeTmuxWorking } from "../../shared/tmuxActivity.js";
+import { classifyTmuxStatus, mergeTmuxSessionStatus, resolveTmuxSessionStatus } from "../../shared/tmuxStatus.js";
 
 describe("tmux activity detection", () => {
   it("detects Codex working output", () => {
@@ -15,10 +15,10 @@ describe("tmux activity detection", () => {
 
     expect(looksLikeTmuxWorking(workingFooter)).toBe(true);
     expect(looksLikeTmuxWaitingForInput(workingFooter)).toBe(false);
-    expect(classifyTmuxStatus({ output: workingFooter }).health).toBe("green");
+    expect(classifyTmuxStatus({ output: workingFooter }).kind).toBe("working");
     expect(looksLikeTmuxWorking(waitingFooter)).toBe(false);
     expect(looksLikeTmuxWaitingForInput(waitingFooter)).toBe(true);
-    expect(classifyTmuxStatus({ output: waitingFooter })).toMatchObject({ kind: "waiting", health: "gray" });
+    expect(classifyTmuxStatus({ output: waitingFooter })).toMatchObject({ kind: "idle", title: "Idle" });
   });
 
   it("detects a Codex input prompt after work completes", () => {
@@ -103,34 +103,63 @@ describe("tmux activity detection", () => {
     ].join("\n"))).toBe(true);
   });
 
-  it("uses conventional status-light colors", () => {
-    expect(classifyTmuxStatus({ output: "Working (3s • esc to interrupt)" }).health).toBe("green");
-    expect(classifyTmuxStatus({ output: "Allow this command? [y/N]" }).health).toBe("amber");
-    expect(classifyTmuxStatus({ output: "Error: command failed" }).health).toBe("red");
-    expect(classifyTmuxStatus({ output: "quiet output" }).health).toBe("gray");
+  it("maps the screen onto gpmon's five states", () => {
+    expect(classifyTmuxStatus({ output: "Working (3s • esc to interrupt)" })).toEqual({ kind: "working", title: "Working", source: "atw" });
+    expect(classifyTmuxStatus({ output: "Allow this command? [y/N]" })).toEqual({ kind: "blocked", title: "Needs permission", source: "atw" });
+    expect(classifyTmuxStatus({ output: "Done.\n─ Worked for 1m 23s ─────────" })).toEqual({ kind: "done", title: "Done", source: "atw" });
+    expect(classifyTmuxStatus({ output: "quiet output" })).toEqual({ kind: "idle", title: "Idle", source: "atw" });
   });
 
-  it("keeps a recent shell failure red when the prompt returns", () => {
-    expect(classifyTmuxStatus({ output: "bash: nope: command not found\nuser@host $" }))
-      .toMatchObject({ kind: "error", health: "red" });
+  it("has no error state: failures read as whatever else the screen says", () => {
+    expect(classifyTmuxStatus({ output: "Error: command failed" }).kind).toBe("idle");
+    expect(classifyTmuxStatus({ output: "bash: nope: command not found\nuser@host $" }).kind).toBe("idle");
+    expect(classifyTmuxStatus({ output: "Traceback (most recent call last)\nWorking (3s • esc to interrupt)" }).kind).toBe("working");
+    const kinds = ["Error: x", "failed", "exit code 2", "FAIL a.test.ts\n❯"].map((output) => classifyTmuxStatus({ output }).kind);
+    expect(kinds).not.toContain("error");
   });
 
-  it("keeps visible actionable and error states ahead of native harness status", () => {
-    const running = classifyTmuxStatus({ output: "Working (3s • esc to interrupt)" });
-    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "Error: command failed" }), running).kind).toBe("error");
-    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "Allow this command? [y/N]" }), running).kind).toBe("needs-permission");
-    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "quiet output" }), running).kind).toBe("running");
+  it("treats a finished turn as done until newer work or a question appears", () => {
+    expect(looksLikeTmuxDone("Answer.\n✻ Worked for 2m 3s\n❯")).toBe(true);
+    expect(looksLikeTmuxDone("Answer.\nTask complete\n›")).toBe(true);
+    expect(looksLikeTmuxDone("Answer.\n─ Worked for 1m ─────\n• Working (3s • esc to interrupt)")).toBe(false);
+    expect(looksLikeTmuxDone("─ Worked for 1m ─────\nAllow this command? [y/N]")).toBe(false);
+    expect(looksLikeTmuxDone("quiet output\n❯")).toBe(false);
   });
 
-  it("uses amber only for visible choices or approvals", () => {
+  it("keeps visible blocked states ahead of native harness status", () => {
+    const working = classifyTmuxStatus({ output: "Working (3s • esc to interrupt)" });
+    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "Error: command failed" }), working).kind).toBe("working");
+    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "Allow this command? [y/N]" }), working).kind).toBe("blocked");
+    expect(mergeTmuxSessionStatus(classifyTmuxStatus({ output: "quiet output" }), working).kind).toBe("working");
+  });
+
+  it("prefers gpmon's row over the screen and the harness", () => {
+    const gpmonIdle = { kind: "idle", title: "Idle 12m", source: "gpmon" } as const;
+    const gpmonBlocked = { kind: "blocked", title: "Blocked", source: "gpmon" } as const;
+    const working = classifyTmuxStatus({ output: "Working (3s • esc to interrupt)" });
+    const permission = classifyTmuxStatus({ output: "Allow this command? [y/N]" });
+
+    expect(resolveTmuxSessionStatus(gpmonIdle, working, working)).toEqual(gpmonIdle);
+    expect(resolveTmuxSessionStatus(gpmonIdle, permission)).toEqual(gpmonIdle);
+    expect(resolveTmuxSessionStatus({ kind: "unknown", title: "Unknown", source: "gpmon" }, working).kind).toBe("unknown");
+    // A bare gpmon "blocked" borrows the screen's reason for the tooltip.
+    expect(resolveTmuxSessionStatus(gpmonBlocked, permission)).toEqual({ kind: "blocked", title: "Needs permission", source: "gpmon" });
+    expect(resolveTmuxSessionStatus(gpmonBlocked, working)).toEqual(gpmonBlocked);
+    // No fresh gpmon row: screen heuristics merged with the opencode harness.
+    expect(resolveTmuxSessionStatus(undefined, classifyTmuxStatus({ output: "quiet output" }), working).kind).toBe("working");
+    expect(resolveTmuxSessionStatus(undefined, permission, working).kind).toBe("blocked");
+    expect(resolveTmuxSessionStatus(undefined, classifyTmuxStatus({ output: "quiet output" })).kind).toBe("idle");
+  });
+
+  it("marks blocked only for visible choices or approvals", () => {
     expect(classifyTmuxStatus({ output: "Which branch should I use?\nctrl+p commands" }))
-      .toMatchObject({ kind: "waiting", health: "gray" });
+      .toMatchObject({ kind: "idle" });
     expect(classifyTmuxStatus({ output: "Next steps:\n1. Create an account\n2. Configure the repository\nctrl+p commands" }))
-      .toMatchObject({ kind: "waiting", health: "gray" });
+      .toMatchObject({ kind: "idle" });
     expect(classifyTmuxStatus({ output: "Choose a branch:\n› 1. main\n  2. release\nPress enter to confirm or esc to go back" }))
-      .toMatchObject({ kind: "question", health: "amber" });
+      .toMatchObject({ kind: "blocked", title: "Asking a question" });
     expect(classifyTmuxStatus({ output: "Allow this command? [y/N]" }))
-      .toMatchObject({ kind: "needs-permission", health: "amber" });
+      .toMatchObject({ kind: "blocked", title: "Needs permission" });
   });
 
   it("lets the current idle prompt clear historical failures", () => {
@@ -142,7 +171,7 @@ describe("tmux activity detection", () => {
       "/workspace/project  ctrl+p commands"
     ].join("\n");
 
-    expect(classifyTmuxStatus({ output: completedRun })).toMatchObject({ kind: "waiting", health: "gray" });
+    expect(classifyTmuxStatus({ output: completedRun })).toMatchObject({ kind: "idle" });
   });
 
   it("lets the current idle prompt clear historical approval controls", () => {
@@ -152,6 +181,6 @@ describe("tmux activity detection", () => {
       "/workspace/project  ctrl+p commands"
     ].join("\n");
 
-    expect(classifyTmuxStatus({ output: completedApproval })).toMatchObject({ kind: "waiting", health: "gray" });
+    expect(classifyTmuxStatus({ output: completedApproval })).toMatchObject({ kind: "idle" });
   });
 });

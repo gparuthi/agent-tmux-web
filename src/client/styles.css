@@ -38,6 +38,11 @@
   --button-text: #141719;
   --selection-bg: #2f6f5f;
   --dot: #6c7378;
+  --status-working: #31c48d;
+  --status-blocked: #e7b84b;
+  --status-done: #1f8a57;
+  --status-idle: #78818d;
+  --status-unknown: #5a6066;
   --focus-ring: rgba(84, 179, 153, 0.14);
   --jump-bg: rgba(16, 18, 20, 0.92);
   --jump-border: rgba(84, 179, 153, 0.42);
@@ -89,6 +94,11 @@
   --button-text: #ffffff;
   --selection-bg: #b7e4d8;
   --dot: #87949d;
+  --status-working: #24a876;
+  --status-blocked: #d29f2c;
+  --status-done: #18744a;
+  --status-idle: #6b747f;
+  --status-unknown: #9aa4ac;
   --focus-ring: rgba(8, 127, 107, 0.16);
   --jump-bg: rgba(255, 255, 255, 0.94);
   --jump-border: rgba(8, 127, 107, 0.38);
@@ -689,20 +699,26 @@ textarea:focus {
   background: var(--dot);
 }
 
-.tmux-session-status-dot.green {
-  background: #31c48d;
+/* Same palette as gpmon's agents panel (xterm-256 42/214/29/244/240). */
+.tmux-session-status-dot.working {
+  background: var(--status-working);
 }
 
-.tmux-session-status-dot.amber {
-  background: #e7b84b;
+.tmux-session-status-dot.blocked {
+  background: var(--status-blocked);
 }
 
-.tmux-session-status-dot.red {
-  background: #e06464;
+.tmux-session-status-dot.done {
+  background: var(--status-done);
 }
 
-.tmux-session-status-dot.gray {
-  background: #78818d;
+.tmux-session-status-dot.idle {
+  background: var(--status-idle);
+}
+
+.tmux-session-status-dot.unknown {
+  border: 1.5px solid var(--status-unknown);
+  background: transparent;
 }
 
 .selected-skills {

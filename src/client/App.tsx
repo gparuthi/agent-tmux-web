@@ -214,9 +214,9 @@ const DEMO_STATUS: AppStatus = {
   }
 };
 const DEMO_TMUX_SESSIONS: TmuxSessionDto[] = [
-  { name: "agent-demo", currentCommand: "codex", windows: 1, created: "Thu May 14 09:00:00 2026", attached: true, viewerCount: 1, status: { kind: "running", health: "green", title: "Running" } },
-  { name: "release-notes", currentCommand: "claude", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, status: { kind: "idle", health: "gray", title: "Idle" } },
-  { name: "infra-check", currentCommand: "opencode", windows: 2, created: "Thu May 14 09:20:00 2026", attached: false, viewerCount: 0, status: { kind: "needs-permission", health: "amber", title: "Needs permission" } }
+  { name: "agent-demo", currentCommand: "codex", windows: 1, created: "Thu May 14 09:00:00 2026", attached: true, viewerCount: 1, status: { kind: "working", title: "Working" } },
+  { name: "release-notes", currentCommand: "claude", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, status: { kind: "idle", title: "Idle" } },
+  { name: "infra-check", currentCommand: "opencode", windows: 2, created: "Thu May 14 09:20:00 2026", attached: false, viewerCount: 0, status: { kind: "blocked", title: "Needs permission" } }
 ];
 const DEMO_TMUX_OUTPUT = [
   "› Review the mobile release checklist and prep the launch notes.",

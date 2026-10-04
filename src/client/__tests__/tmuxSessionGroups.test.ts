@@ -19,10 +19,12 @@ import {
   tmuxWindowPaneNames
 } from "../tmuxSessionGroups.js";
 
-const RUNNING: TmuxSessionStatusDto = { kind: "running", health: "green", title: "Running" };
-const QUESTION: TmuxSessionStatusDto = { kind: "question", health: "amber", title: "Choice required" };
-const PERMISSION: TmuxSessionStatusDto = { kind: "needs-permission", health: "amber", title: "Needs permission" };
-const ERROR: TmuxSessionStatusDto = { kind: "error", health: "red", title: "Error" };
+const WORKING: TmuxSessionStatusDto = { kind: "working", title: "Working" };
+const QUESTION: TmuxSessionStatusDto = { kind: "blocked", title: "Asking a question" };
+const PERMISSION: TmuxSessionStatusDto = { kind: "blocked", title: "Needs permission" };
+const DONE: TmuxSessionStatusDto = { kind: "done", title: "Done" };
+const IDLE: TmuxSessionStatusDto = { kind: "idle", title: "Idle 12m" };
+const UNKNOWN: TmuxSessionStatusDto = { kind: "unknown", title: "Unknown" };
 
 const pane = (name: string, session: string | undefined, extra: Partial<TmuxSessionDto> = {}): TmuxSessionDto => ({
   name,
@@ -69,13 +71,20 @@ describe("tmux session groups", () => {
     ]);
   });
 
-  it("shows the most attention-worthy pane status for a group", () => {
-    expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: RUNNING }), pane("%2", "a")])).toEqual(RUNNING);
-    expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: RUNNING }), pane("%2", "a", { status: QUESTION })])).toEqual(QUESTION);
-    expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: QUESTION }), pane("%2", "a", { status: ERROR })])).toEqual(ERROR);
-    expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: PERMISSION }), pane("%2", "a", { status: QUESTION })])).toEqual(PERMISSION);
+  it("shows the most attention-worthy pane status for a group: blocked > working > done > idle > unknown", () => {
+    const aggregate = (...statuses: TmuxSessionStatusDto[]) => aggregateTmuxSessionStatus(
+      statuses.map((status, index) => pane(`%${index + 1}`, "a", { status }))
+    );
+    expect(aggregate(UNKNOWN, IDLE, DONE, WORKING, QUESTION)).toEqual(QUESTION);
+    expect(aggregate(UNKNOWN, IDLE, DONE, WORKING)).toEqual(WORKING);
+    expect(aggregate(WORKING, DONE)).toEqual(WORKING);
+    expect(aggregate(UNKNOWN, IDLE, DONE)).toEqual(DONE);
+    expect(aggregate(UNKNOWN, IDLE)).toEqual(IDLE);
+    expect(aggregate(UNKNOWN)).toEqual(UNKNOWN);
+    expect(aggregate(PERMISSION, QUESTION)).toEqual(PERMISSION);
+    expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: WORKING }), pane("%2", "a")])).toEqual(WORKING);
     expect(aggregateTmuxSessionStatus([])).toEqual(tmuxPaneStatus(pane("%9", "a")));
-    expect(tmuxPaneStatus(pane("%9", "a")).health).toBe("gray");
+    expect(tmuxPaneStatus(pane("%9", "a")).kind).toBe("unknown");
   });
 
   it("drops the redundant session prefix from pane details inside a group", () => {

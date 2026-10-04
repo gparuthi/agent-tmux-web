@@ -233,13 +233,23 @@ describe("responsive mobile CSS", () => {
     expect(app).not.toContain("TmuxAgentSummaryStrip");
   });
 
-  it("defines semantic tmux session status lights", () => {
+  it("defines gpmon's five agent status lights in both themes", () => {
     const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
+    const darkBlock = extractBalancedCssBlock(css, ":root {").text;
+    const lightBlock = extractBalancedCssBlock(css, ':root[data-theme="light"]').text;
 
-    expect(css).toContain(".tmux-session-status-dot.green");
-    expect(css).toContain(".tmux-session-status-dot.amber");
-    expect(css).toContain(".tmux-session-status-dot.red");
-    expect(css).toContain(".tmux-session-status-dot.gray");
+    for (const kind of ["working", "blocked", "done", "idle", "unknown"]) {
+      expect(css).toContain(`.tmux-session-status-dot.${kind}`);
+      expect(lightBlock).toContain(`--status-${kind}:`);
+    }
+    expect(darkBlock).toContain("--status-working: #31c48d;");
+    expect(darkBlock).toContain("--status-blocked: #e7b84b;");
+    expect(darkBlock).toContain("--status-done: #1f8a57;");
+    expect(darkBlock).toContain("--status-idle: #78818d;");
+    expect(extractBalancedCssBlock(css, ".tmux-session-status-dot.unknown").text).toContain("background: transparent;");
+    for (const removed of ["green", "amber", "red", "gray", "error"]) {
+      expect(css).not.toContain(`.tmux-session-status-dot.${removed}`);
+    }
   });
 
   it("builds a dense desktop workbench while retaining the mobile terminal layout", () => {

@@ -44,7 +44,7 @@ export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences
         >
           <span
             aria-label={`${status.title} status`}
-            className={`tmux-session-status-dot ${status.health}`}
+            className={`tmux-session-status-dot ${status.kind}`}
             title={status.title}
           />
           <span className="tmux-session-name">{displayName}</span>
@@ -111,7 +111,7 @@ export function TmuxSessionList({ panes, pinnedNames, selected, groupPreferences
               <ChevronRight aria-hidden="true" className="tmux-session-group-chevron" size={13} />
               <span className="tmux-session-group-name">{session}</span>
               {collapsed && (
-                <span aria-hidden="true" className={`tmux-session-status-dot ${aggregate.health}`} />
+                <span aria-hidden="true" className={`tmux-session-status-dot ${aggregate.kind}`} />
               )}
               <span aria-hidden="true" className="tmux-session-group-count">{group.panes.length}</span>
             </button>
