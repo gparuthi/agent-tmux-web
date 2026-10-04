@@ -617,10 +617,11 @@ export async function openTmuxTool(session: string, tool: Pick<TmuxToolConfig, "
   await sendTmuxText(session, buildTmuxToolCommand(tool, modeIds), true);
 }
 
-export function buildTmuxCapturePaneArgs(session: string, lines: number, joinWrappedLines = false): string[] {
+export function buildTmuxCapturePaneArgs(session: string, lines: number, joinWrappedLines = false, escapes = false): string[] {
   return [
     "capture-pane",
     "-p",
+    ...(escapes ? ["-e"] : []),
     ...(joinWrappedLines ? ["-J"] : []),
     "-t",
     session,
@@ -632,15 +633,16 @@ export function buildTmuxCapturePaneArgs(session: string, lines: number, joinWra
 export async function captureTmuxPane(
   session: string,
   lines = TMUX_CAPTURE_HISTORY_LINES,
-  joinWrappedLines = false
+  joinWrappedLines = false,
+  escapes = false
 ): Promise<string> {
   const safeLines = normalizeTmuxCaptureLines(lines);
   const { stdout } = await execFileAsync(
     "tmux",
-    buildTmuxCapturePaneArgs(session, safeLines, joinWrappedLines),
+    buildTmuxCapturePaneArgs(session, safeLines, joinWrappedLines, escapes),
     { maxBuffer: TMUX_CAPTURE_MAX_BUFFER_BYTES }
   );
-  return trimTmuxCapture(stdout);
+  return escapes ? trimTmuxAnsiCapture(stdout) : trimTmuxCapture(stdout);
 }
 
 export async function captureTmuxVisiblePane(session: string): Promise<string> {
@@ -1037,10 +1039,12 @@ async function queryOpenCodeDatabase(query: string, maxBuffer: number, json = tr
 export async function captureTmuxPaneView(
   session: string,
   lines = TMUX_CAPTURE_HISTORY_LINES,
-  knownOutputRevision?: string
+  knownOutputRevision?: string,
+  options: { ansi?: boolean } = {}
 ): Promise<TmuxPaneCapture> {
   const metadata = await inspectTmuxPane(session).catch(() => null);
-  const output = await captureTmuxPane(session, lines, Boolean(metadata && !metadata.alternateScreen));
+  const escapes = Boolean(options.ansi);
+  const output = await captureTmuxPane(session, lines, Boolean(metadata && !metadata.alternateScreen), escapes);
   const view = metadata && isOpenCodeFullTuiPane(metadata)
     ? splitOpenCodeTuiCapture(output, metadata.width, metadata.height) ?? { output }
     : { output };
@@ -1184,7 +1188,7 @@ export function splitOpenCodeTuiCapture(output: string, paneWidth: number, paneH
   }
 
   return {
-    output: trimTmuxCapture(mainLines.join("\n")),
+    output: trimTmuxAnsiCapture(mainLines.join("\n")),
     sidebar: {
       kind: "opencode",
       output: sidebar
@@ -1192,7 +1196,35 @@ export function splitOpenCodeTuiCapture(output: string, paneWidth: number, paneH
   };
 }
 
+const TMUX_ESCAPE_PATTERN = /\u001b\[[0-9;:?<=>]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/gu;
+
+// Escape sequences take no columns. The sidebar is returned plain; escapes from its columns trail the
+// main text so a renderer that carries colour state across lines stays in step with tmux.
 export function splitDisplayLineAtColumn(line: string, splitColumn: number): [string, string] {
+  if (line.includes("\u001b")) {
+    let main = "";
+    let sidebar = "";
+    let trailing = "";
+    let column = 0;
+    let cursor = 0;
+    const addText = (text: string) => {
+      const [left, right] = splitDisplayLineAtColumn(text, splitColumn - column);
+      main += left;
+      sidebar += right;
+      column += stringWidth(text);
+    };
+    for (const match of line.matchAll(TMUX_ESCAPE_PATTERN)) {
+      addText(line.slice(cursor, match.index));
+      cursor = (match.index ?? 0) + match[0].length;
+      if (column < splitColumn) {
+        main += match[0];
+      } else if (match[0].endsWith("m") && match[0].startsWith("\u001b[")) {
+        trailing += match[0];
+      }
+    }
+    addText(line.slice(cursor));
+    return [main + trailing, sidebar];
+  }
   if (splitColumn <= 0) {
     return ["", line];
   }
@@ -1224,6 +1256,11 @@ export function trimBlankCaptureRows(output: string): string {
 
 export function trimTmuxCapture(output: string): string {
   return output.replace(/[\t\r\n ]+$/u, "");
+}
+
+// capture-pane -e can end blank rows with SGR resets; trim those along with the whitespace.
+export function trimTmuxAnsiCapture(output: string): string {
+  return output.replace(/(?:[\t\r\n ]|\u001b\[[0-9;:]*m)+$/u, "");
 }
 
 export async function sendTmuxText(session: string, text: string, enter: boolean, submitKey: TmuxSubmitKey = "enter"): Promise<void> {

@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ArrowUp,
   Bell,
+  Bot,
   Check,
   ChevronDown,
   CircleStop,
@@ -39,7 +40,19 @@ import {
 } from "lucide-react";
 import { ClipboardEvent, FormEvent, Fragment, KeyboardEvent, UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
-import { TMUX_CAPTURE_HISTORY_LINES, type AppStatus, type CodexModel, type CodexSkill, type TmuxCaptureDto, type TmuxSessionDto, type TmuxToolDto, type TmuxWatchEvent, type UploadedFileDto } from "../shared/api.js";
+import {
+  TMUX_CAPTURE_HISTORY_LINES,
+  type AgentsDto,
+  type AppStatus,
+  type CodexModel,
+  type CodexSkill,
+  type StartAgentResultDto,
+  type TmuxCaptureDto,
+  type TmuxSessionDto,
+  type TmuxToolDto,
+  type TmuxWatchEvent,
+  type UploadedFileDto
+} from "../shared/api.js";
 import { describeThreadItem, type UiEventDescription } from "../shared/codexEvents.js";
 import { buildTmuxToolCommand, DEFAULT_TMUX_TOOLS, defaultTmuxToolModeIds, toggleTmuxToolModeId } from "../shared/tmuxTools.js";
 import {
@@ -100,6 +113,7 @@ import {
   tmuxSessionGroupHeader,
   togglePinnedTmuxSessionName
 } from "./tmuxSessionTarget.js";
+import { NewAgentSheet } from "./NewAgentSheet.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
 import {
   DEFAULT_TMUX_VIEW_STORAGE_KEY,
@@ -312,6 +326,7 @@ export function App() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [error, setError] = useState("");
   const [newTmuxName, setNewTmuxName] = useState("agent");
+  const [newAgentOpen, setNewAgentOpen] = useState(false);
   const [selectedTmuxTool, setSelectedTmuxTool] = useState("opencode");
   const [selectedTmuxToolModes, setSelectedTmuxToolModes] = useState<Record<string, string[]>>({});
   const [customTmuxTools, setCustomTmuxTools] = useState<TmuxToolDto[]>(readInitialCustomTmuxTools);
@@ -527,7 +542,8 @@ export function App() {
         lines: String(TMUX_CAPTURE_HISTORY_LINES),
         clientWidth: String(resolveTmuxCaptureClientWidth()),
         clientHeight: String(resolveTmuxCaptureClientHeight()),
-        resize: "true"
+        resize: "true",
+        ansi: "true"
       });
       const previousCapture = tmuxCaptureCacheRef.current[session];
       if (previousCapture?.outputRevision) {
@@ -578,7 +594,8 @@ export function App() {
         lines: String(TMUX_CAPTURE_HISTORY_LINES),
         clientWidth: String(resolveTmuxCaptureClientWidth()),
         clientHeight: String(resolveTmuxCaptureClientHeight()),
-        resize: "false"
+        resize: "false",
+        ansi: "true"
       });
       const previousCapture = tmuxCaptureCacheRef.current[session];
       if (previousCapture?.outputRevision) {
@@ -1674,6 +1691,12 @@ export function App() {
     selectTmuxSession(findTmuxPaneForSession(result.data, sessionName)?.name ?? sessionName);
   }
 
+  function handleAgentStarted(result: StartAgentResultDto) {
+    setNewAgentOpen(false);
+    setTmuxSessions(result.sessions);
+    selectTmuxSession(result.pane);
+  }
+
   async function destroySession() {
     const targetSession = selectedTmux;
     // Destroy kills the whole tmux session that owns the selected pane, never a single pane.
@@ -2419,6 +2442,11 @@ export function App() {
         </div>
         <div className="tmux-control-rail">
           <div className={tmuxMenuOpen ? "tmux-menu open" : "tmux-menu"}>
+            {!demoMode && (
+              <button className="tmux-new-agent-button" type="button" onClick={() => setNewAgentOpen(true)}>
+                <Bot aria-hidden="true" size={15} /> <span>New agent</span>
+              </button>
+            )}
             <div className="tmux-rail-section-title">Sessions</div>
             <div className="tmux-sessions">
               {orderedTmuxSessions.map((session, index) => {
@@ -2594,6 +2622,7 @@ export function App() {
                 onScroll={handleTmuxOutputScroll}
                 output={tmuxOutput}
                 sidebar={tmuxSidebar}
+                theme={colorTheme}
               />
             )}
             {showTmuxJumpToLatest && (
@@ -2659,8 +2688,27 @@ export function App() {
           )}
         </div>
       </aside>
+      {newAgentOpen && (
+        <NewAgentSheet
+          loadAgents={loadNewAgentOptions}
+          startAgent={startNewAgent}
+          onClose={() => setNewAgentOpen(false)}
+          onStarted={handleAgentStarted}
+        />
+      )}
     </div>
   );
+}
+
+function loadNewAgentOptions(): Promise<AgentsDto> {
+  return api<{ data: AgentsDto }>("/api/tmux/agents").then((result) => result.data);
+}
+
+function startNewAgent(agent: string, cwd: string): Promise<StartAgentResultDto> {
+  return api<{ data: StartAgentResultDto }>("/api/tmux/agents/start", {
+    method: "POST",
+    body: JSON.stringify({ agent, cwd })
+  }).then((result) => result.data);
 }
 
 function TimelineCard({ entry }: { entry: TimelineEntry }) {

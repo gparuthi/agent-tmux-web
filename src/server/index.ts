@@ -7,9 +7,17 @@ import { promisify } from "node:util";
 import express, { type Request, type Response, type NextFunction } from "express";
 import { WebSocketServer, type RawData, type WebSocket } from "ws";
 
-import { TMUX_CAPTURE_HISTORY_LINES, type AppStatus, type TmuxCaptureDto, type TmuxSessionDto } from "../shared/api.js";
+import {
+  TMUX_CAPTURE_HISTORY_LINES,
+  type AgentsDto,
+  type AppStatus,
+  type StartAgentResultDto,
+  type TmuxCaptureDto,
+  type TmuxSessionDto
+} from "../shared/api.js";
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../shared/tmuxStatus.js";
+import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
 import { resolveAuthToken } from "./authToken.js";
 import { CodexBridge } from "./codexBridge.js";
 import {
@@ -279,7 +287,7 @@ app.get("/api/tmux/capture", asyncHandler(async (req, res) => {
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
   }
-  const capture = await captureTmuxPaneView(session, lines, outputRevision ?? undefined);
+  const capture = await captureTmuxPaneView(session, lines, outputRevision ?? undefined, { ansi: req.query.ansi === "true" });
   res.json({ session, ...capture } satisfies TmuxCaptureDto);
 }));
 
@@ -291,6 +299,25 @@ app.post("/api/tmux/create", asyncHandler(async (req, res) => {
   );
   res.json({
     data: await listTmuxSessionsWithStatus()
+  });
+}));
+
+app.get("/api/tmux/agents", asyncHandler(async (_req, res) => {
+  const [agents, panes] = await Promise.all([listAvailableAgents(), listTmuxSessions()]);
+  res.json({
+    data: {
+      session: NEW_AGENT_TMUX_SESSION,
+      agents: agents.map(({ id, label }) => ({ id, label })),
+      directories: await listAgentDirectories(panes)
+    } satisfies AgentsDto
+  });
+}));
+
+app.post("/api/tmux/agents/start", asyncHandler(async (req, res) => {
+  const body = req.body as Record<string, unknown>;
+  const started = await startAgentInTmux(body.agent, body.cwd);
+  res.json({
+    data: { ...started, sessions: await listTmuxSessionsWithStatus() } satisfies StartAgentResultDto
   });
 }));
 

@@ -65,6 +65,32 @@ export type TmuxCaptureDto = {
   };
 };
 
+export type AgentDto = {
+  id: string;
+  label: string;
+};
+
+export type AgentDirectoryDto = {
+  path: string;
+  // Home-shortened path for display.
+  label: string;
+  source: "pane" | "repo";
+};
+
+export type AgentsDto = {
+  session: string;
+  agents: AgentDto[];
+  // Most recent first: live pane cwds and git repos.
+  directories: AgentDirectoryDto[];
+};
+
+export type StartAgentResultDto = {
+  pane: string;
+  directory: string;
+  windowName: string;
+  sessions: TmuxSessionDto[];
+};
+
 export type TmuxToolModeDto = {
   id: string;
   label: string;

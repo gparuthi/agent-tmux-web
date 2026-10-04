@@ -18,6 +18,7 @@ import {
   buildTmuxPaneLabel,
   buildTmuxViewerCountArgs,
   captureTmuxPane,
+  captureTmuxPaneView,
   displayTmuxPaneCommand,
   listTmuxSessions,
   parseTmuxPanes,
@@ -52,6 +53,7 @@ import {
   renderOpenCodeTextStream,
   splitDisplayLineAtColumn,
   splitOpenCodeTuiCapture,
+  trimTmuxAnsiCapture,
   trimTmuxCapture
 } from "../tmux.js";
 import { TMUX_CAPTURE_HISTORY_LINES } from "../../shared/api.js";
@@ -566,6 +568,27 @@ describe("tmux command builders", () => {
     expect(splitDisplayLineAtColumn("terminal", 4)).toEqual(["term", "inal"]);
   });
 
+  it("treats escape sequences as zero-width and keeps the sidebar plain", () => {
+    const red = "\u001b[31m";
+    const blue = "\u001b[38;2;0;0;255m";
+    const reset = "\u001b[0m";
+    expect(splitDisplayLineAtColumn(`${red}term${reset}${blue}inal${reset}`, 4)).toEqual([`${red}term${reset}${blue}${reset}`, "inal"]);
+    expect(splitDisplayLineAtColumn(`ab${red}界cd`, 4)).toEqual([`ab${red}界`, "cd"]);
+  });
+
+  it("keeps colours in the OpenCode terminal column when the capture has escapes", () => {
+    const mainWidth = 88;
+    const row = (main: string, sidebar: string) => `\u001b[32m${main}\u001b[0m${" ".repeat(mainWidth - main.length)}\u001b[1m${sidebar}\u001b[22m`;
+    const capture = [
+      row("Reply", "Session title"),
+      row("OK", "Context"),
+      row("", "• OpenCode 1.18.3")
+    ].join("\n");
+    const view = splitOpenCodeTuiCapture(capture, 130);
+    expect(view?.sidebar).toEqual({ kind: "opencode", output: "Session title\nContext\n• OpenCode 1.18.3" });
+    expect(view?.output.split("\n")[0]).toMatch(/^\u001b\[32mReply\u001b\[0m\s*\u001b\[1m\u001b\[22m$/);
+  });
+
   it("extracts OpenCode's fixed-width sidebar from a full TUI capture", () => {
     const mainWidth = 88;
     const row = (main: string, sidebar: string) => `${main.padEnd(mainWidth)}${sidebar}`;
@@ -782,6 +805,13 @@ describe("tmux pane listing", () => {
     expect(resolveTmuxSessionName(panes, "other")).toBe("other");
   });
 
+  it("keeps escape sequences only when colour capture is asked for", () => {
+    expect(buildTmuxCapturePaneArgs("%38", 100, true, true)).toEqual(["capture-pane", "-p", "-e", "-J", "-t", "%38", "-S", "-100"]);
+    expect(buildTmuxCapturePaneArgs("%38", 100, true)).not.toContain("-e");
+    expect(trimTmuxAnsiCapture("\u001b[31mred\u001b[39m\n\u001b[0m  \n\u001b[49m\n")).toBe("\u001b[31mred");
+    expect(trimTmuxAnsiCapture("plain\n\n")).toBe("plain");
+  });
+
   it("targets the specific pane for capture, send, submit, and interrupt", () => {
     expect(buildTmuxCapturePaneArgs("%38", 100)).toEqual(["capture-pane", "-p", "-t", "%38", "-S", "-100"]);
     expect(buildTmuxSubmitKeysArgs("%38")).toEqual(["send-keys", "-t", "%38", "Enter"]);
@@ -851,5 +881,22 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
 
     expect(inactiveOutput).toMatch(/^PANE_TARGET_MARK$/m);
     expect(await captureTmuxPane(active!.name, 50)).not.toContain("PANE_TARGET_MARK");
+  });
+
+  it("captures ANSI colours, including 256-colour and truecolor, when asked", async () => {
+    const pane = (await listTmuxSessions()).find((entry) => entry.session === "atwtest" && entry.paneActive);
+    expect(pane).toBeDefined();
+    await sendTmuxText(pane!.name, "printf '\\033[31mRED\\033[0m \\033[38;5;208mORANGE\\033[0m \\033[38;2;10;200;30mTRUE\\033[0m\\n'", true, "enter");
+    let colored = "";
+    for (let attempt = 0; attempt < 30 && !/^\S*RED/m.test(colored.replace(/\u001b\[[0-9;:]*m/g, "")); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      colored = (await captureTmuxPaneView(pane!.name, 50, undefined, { ansi: true })).output;
+    }
+    expect(colored).toContain("\u001b[31mRED");
+    expect(colored).toContain("\u001b[38;5;208mORANGE");
+    expect(colored).toContain("\u001b[38;2;10;200;30mTRUE");
+    const plain = (await captureTmuxPaneView(pane!.name, 50)).output;
+    expect(plain).toMatch(/^RED ORANGE TRUE$/m);
+    expect(plain).not.toContain("\u001b");
   });
 });

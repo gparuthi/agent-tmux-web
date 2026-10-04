@@ -3,16 +3,18 @@ import { forwardRef, useLayoutEffect, useRef, useState, type ForwardedRef, type 
 
 import type { TmuxCaptureDto } from "../shared/api.js";
 import { parseOpenCodeSidebar } from "./openCodeSidebar.js";
+import type { ColorTheme } from "./theme.js";
 import { TmuxOutputLines } from "./tmuxOutputLines.js";
 
 type TmuxTtyViewProps = {
   output: string;
   sidebar?: TmuxCaptureDto["sidebar"];
+  theme?: ColorTheme;
   onScroll: (event: UIEvent<HTMLElement>) => void;
 };
 
 export const TmuxTtyView = forwardRef<HTMLElement, TmuxTtyViewProps>(function TmuxTtyView(
-  { output, sidebar, onScroll },
+  { output, sidebar, theme = "dark", onScroll },
   ref
 ) {
   const [mobilePane, setMobilePane] = useState<"terminal" | "details">("terminal");
@@ -85,7 +87,7 @@ export const TmuxTtyView = forwardRef<HTMLElement, TmuxTtyViewProps>(function Tm
   if (!sidebar) {
     return (
       <pre ref={assignTerminal} className="tmux-output" onScroll={onScroll}>
-        <TmuxOutputLines output={terminalOutput} />
+        <TmuxOutputLines output={terminalOutput} theme={theme} />
       </pre>
     );
   }
@@ -128,7 +130,7 @@ export const TmuxTtyView = forwardRef<HTMLElement, TmuxTtyViewProps>(function Tm
         role="tabpanel"
         onScroll={handleTerminalScroll}
       >
-        <TmuxOutputLines output={terminalOutput} />
+        <TmuxOutputLines output={terminalOutput} theme={theme} />
       </pre>
       <aside
         ref={assignDetails}

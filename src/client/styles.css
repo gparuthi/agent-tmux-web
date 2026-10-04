@@ -1823,3 +1823,186 @@ textarea:focus {
     padding: 8px;
   }
 }
+
+/* Program-chosen backgrounds fill the line box so TUI rows don't show gaps. */
+.tmux-output-line span[style*="background"] {
+  padding: 3px 0;
+}
+
+.tmux-new-agent-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 38px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.new-agent-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: var(--shadow-strong);
+}
+
+.new-agent-sheet {
+  display: grid;
+  gap: 10px;
+  width: min(440px, 100%);
+  max-height: min(640px, calc(100vh - 32px));
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow: 0 16px 40px var(--shadow);
+}
+
+.new-agent-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.new-agent-header strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+}
+
+.new-agent-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--text-control);
+}
+
+.new-agent-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.new-agent-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.new-agent-choices button,
+.new-agent-directories button {
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--surface-control);
+  color: var(--text-control);
+  cursor: pointer;
+}
+
+.new-agent-choices button {
+  height: 36px;
+  padding: 0 14px;
+  font-weight: 700;
+}
+
+.new-agent-choices button.active,
+.new-agent-directories button.active {
+  border-color: var(--accent);
+  background: var(--accent-muted);
+  color: var(--accent-soft-text);
+}
+
+.new-agent-directories {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
+  max-height: 240px;
+  overflow: auto;
+}
+
+.new-agent-directories button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  text-align: left;
+}
+
+.new-agent-directory-path {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.new-agent-directory-source,
+.new-agent-muted {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.new-agent-path {
+  height: 36px;
+  font-size: 16px;
+}
+
+.new-agent-error {
+  padding: 8px 10px;
+  border: 1px solid var(--border-error);
+  border-radius: 8px;
+  background: var(--error-bg);
+  color: var(--error-text);
+  font-size: 13px;
+}
+
+.new-agent-start {
+  height: 42px;
+  border: 1px solid var(--accent-strong);
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.new-agent-start:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+@media (max-width: 760px) {
+  .new-agent-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .new-agent-sheet {
+    width: 100%;
+    max-height: 85vh;
+    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    border-radius: 14px 14px 0 0;
+  }
+}

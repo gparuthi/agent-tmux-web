@@ -19,4 +19,18 @@ describe("TmuxOutputLines", () => {
     expect(details).not.toContain("data-tmux-anchor-index");
     expect(details).not.toContain("data-tmux-scroll-anchor");
   });
+
+  it("renders ANSI colours as styled spans without leaking escape bytes", () => {
+    const output = "\u001b[31mred\u001b[0m see https://example.com/x\n\n\u001b[38;5;231mwhite";
+    const dark = renderToStaticMarkup(<pre><TmuxOutputLines output={output} theme="dark" /></pre>);
+    const light = renderToStaticMarkup(<pre><TmuxOutputLines output={output} theme="light" /></pre>);
+    expect(dark).toContain("<span style=\"color:#ff6b6b\">red</span>");
+    expect(dark).toContain("<a href=\"https://example.com/x\"");
+    expect(dark).toContain("color:rgb(255, 255, 255)");
+    expect(light).toContain("<span style=\"color:#c0262d\">red</span>");
+    expect(light).not.toContain("color:rgb(255, 255, 255)");
+    expect(dark).not.toContain("\u001b");
+    expect(dark).toContain("data-tmux-anchor-index=\"2\"");
+    expect(dark).toContain("\u00a0");
+  });
 });
