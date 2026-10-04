@@ -73,12 +73,38 @@ export function authenticate(expected: string, credentials: {
   return { ok: cookieValid, source: cookieValid ? "cookie" : null, cookieValid };
 }
 
+// ATW_TAILSCALE_LOGINS: comma-separated tailnet logins; empty turns identity auth off.
+export function parseTailscaleLogins(value: string | undefined): ReadonlySet<string> {
+  return new Set((value ?? "").split(",").map((login) => login.trim().toLowerCase()).filter(Boolean));
+}
+
+export function isLoopbackAddress(address: string | undefined): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
+
+// tailscale serve proxies from loopback and sets Tailscale-User-Login for tailnet users only, stripping client copies.
+export function isTailscaleIdentityRequest(logins: ReadonlySet<string>, req: IncomingMessage): boolean {
+  if (logins.size === 0 || !isLoopbackAddress(req.socket?.remoteAddress)) {
+    return false;
+  }
+  const login = req.headers["tailscale-user-login"];
+  return typeof login === "string" && logins.has(login.trim().toLowerCase());
+}
+
 export function createAuthMiddleware(options: {
   authToken: string;
   isPublicRequest: (req: Request) => boolean;
+  tailscaleLogins?: ReadonlySet<string>;
 }) {
+  const tailscaleLogins = options.tailscaleLogins ?? new Set<string>();
   return (req: Request, res: Response, next: NextFunction): void => {
     if (!options.authToken || options.isPublicRequest(req)) {
+      next();
+      return;
+    }
+
+    // No token involved, so no token cookie either.
+    if (isTailscaleIdentityRequest(tailscaleLogins, req)) {
       next();
       return;
     }
@@ -104,8 +130,12 @@ export function createAuthMiddleware(options: {
   };
 }
 
-export function isAuthorizedWebSocketRequest(authToken: string, req: IncomingMessage): boolean {
-  if (!authToken) {
+export function isAuthorizedWebSocketRequest(
+  authToken: string,
+  req: IncomingMessage,
+  tailscaleLogins: ReadonlySet<string> = new Set()
+): boolean {
+  if (!authToken || isTailscaleIdentityRequest(tailscaleLogins, req)) {
     return true;
   }
   const url = new URL(req.url ?? "/", "http://localhost");

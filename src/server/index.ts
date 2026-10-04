@@ -18,7 +18,7 @@ import {
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, resolveTmuxSessionStatus } from "../shared/tmuxStatus.js";
 import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
-import { createAuthMiddleware, isAuthorizedWebSocketRequest } from "./auth.js";
+import { createAuthMiddleware, isAuthorizedWebSocketRequest, parseTailscaleLogins } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
 import { AgentRowsCache } from "./agentRows.js";
 import { ClaudePromptTimes } from "./claudePrompts.js";
@@ -87,6 +87,7 @@ const port = Number(process.env.PORT ?? 6174);
 const codexAppServerPort = Number(process.env.CODEX_APP_SERVER_PORT ?? 43117);
 const codexAppServerAutostart = process.env.CODEX_APP_SERVER_AUTOSTART === "1";
 const authToken = resolveAuthToken(process.env);
+const tailscaleLogins = parseTailscaleLogins(process.env.ATW_TAILSCALE_LOGINS);
 const defaultCwd = process.env.CLI_WEB_DEFAULT_CWD ?? process.env.HOME ?? process.cwd();
 const jsonBodyLimit = process.env.AGENT_TMUX_WEB_JSON_LIMIT ?? "25mb";
 const runtimeEnvironment = process.env.AGENT_TMUX_WEB_ENV === "development"
@@ -156,6 +157,7 @@ app.use((req, res, next) => {
 
 app.use(createAuthMiddleware({
   authToken,
+  tailscaleLogins,
   isPublicRequest: (req) => req.path === "/healthz" || isPublicAssetRequest(req)
 }));
 
@@ -585,7 +587,7 @@ if (developmentMode) {
 
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", async (socket, req) => {
-  if (!isAuthorizedWebSocketRequest(authToken, req)) {
+  if (!isAuthorizedWebSocketRequest(authToken, req, tailscaleLogins)) {
     socket.close(1008, "Unauthorized");
     return;
   }
@@ -601,7 +603,7 @@ wss.on("connection", async (socket, req) => {
 const tmuxWss = new WebSocketServer({ noServer: true });
 tmuxWss.on("connection", async (socket, req) => {
   const url = new URL(req.url ?? "/tmux-ws", `http://${req.headers.host ?? "localhost"}`);
-  if (!isAuthorizedWebSocketRequest(authToken, req)) {
+  if (!isAuthorizedWebSocketRequest(authToken, req, tailscaleLogins)) {
     socket.close(1008, "Unauthorized");
     return;
   }

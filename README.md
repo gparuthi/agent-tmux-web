@@ -165,6 +165,10 @@ token in an `HttpOnly`, `SameSite=Strict` cookie and drops it from the address
 bar, so later visits work from the plain URL. Header and `?token=` callers keep
 working unchanged.
 
+Behind `tailscale serve` on a loopback bind, set `ATW_TAILSCALE_LOGINS` to your
+tailnet login(s) to skip the token: requests from loopback whose
+`Tailscale-User-Login` header is on that list are let in without a token.
+
 For AI-assisted setup, give your assistant [AI_SETUP.md](./AI_SETUP.md). It is a
 checklist for installing privately, verifying tmux, launchers, uploads, raw
 mode, and notifications.
@@ -276,6 +280,9 @@ Common variables:
 - `AGENT_TMUX_WEB_AUTH_TOKEN_FILE`: read the token from this file instead, so it
   stays out of the process environment. The server refuses to start if the file
   is missing or empty. `AGENT_TMUX_WEB_AUTH_TOKEN` wins when both are set.
+- `ATW_TAILSCALE_LOGINS`: comma-separated tailnet logins (case-insensitive)
+  trusted via `tailscale serve`'s `Tailscale-User-Login` header on loopback
+  requests. Unset or empty keeps token-only auth.
 - `AGENT_TMUX_WEB_LAST_INPUT_FILE`: where the per-pane "last input" times that
   sort the session list are saved. Defaults to `~/.local/state/atw/last-input.json`.
 - `AGENT_TMUX_WEB_JSON_LIMIT`: request body limit for large pasted prompts and

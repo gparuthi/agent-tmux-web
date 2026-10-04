@@ -11,8 +11,11 @@ import {
   buildAuthCookie,
   createAuthMiddleware,
   isAuthorizedWebSocketRequest,
+  isLoopbackAddress,
+  isTailscaleIdentityRequest,
   isValidAuthToken,
-  parseCookieHeader
+  parseCookieHeader,
+  parseTailscaleLogins
 } from "../auth.js";
 
 const TOKEN = "s3cret-token_value";
@@ -205,5 +208,130 @@ describe("auth middleware and websocket check", () => {
     const req = { url: "/ws", headers: {} } as http.IncomingMessage;
     expect(isAuthorizedWebSocketRequest("", req)).toBe(true);
     expect(isAuthorizedWebSocketRequest(TOKEN, req)).toBe(false);
+  });
+});
+
+describe("tailscale identity auth", () => {
+  const LOGINS = parseTailscaleLogins(" Owner@Example.com, ,second@example.com ");
+  let server: http.Server | undefined;
+  let baseUrl = "";
+  let wsBaseUrl = "";
+
+  function identityRequest(remoteAddress: string, login?: string | string[]): http.IncomingMessage {
+    return {
+      url: "/ws",
+      socket: { remoteAddress },
+      headers: login === undefined ? {} : { "tailscale-user-login": login }
+    } as unknown as http.IncomingMessage;
+  }
+
+  async function start(tailscaleLogins: ReadonlySet<string>) {
+    const app = express();
+    app.use(createAuthMiddleware({ authToken: TOKEN, tailscaleLogins, isPublicRequest: () => false }));
+    app.get("/api/auth/session", (_req, res) => {
+      res.json({ ok: true });
+    });
+    app.get("/api/tmux/sessions", (_req, res) => {
+      res.json({ sessions: [] });
+    });
+    const started = http.createServer(app);
+    server = started;
+    const wss = new WebSocketServer({ noServer: true });
+    started.on("upgrade", (req, socket, head) => {
+      wss.handleUpgrade(req, socket, head, (webSocket) => {
+        if (!isAuthorizedWebSocketRequest(TOKEN, req, tailscaleLogins)) {
+          webSocket.close(1008, "Unauthorized");
+          return;
+        }
+        webSocket.send("hello");
+      });
+    });
+    await new Promise<void>((resolve) => started.listen(0, "127.0.0.1", resolve));
+    const { port } = started.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${port}`;
+    wsBaseUrl = `ws://127.0.0.1:${port}`;
+  }
+
+  function openSocket(path: string, headers: Record<string, string> = {}): Promise<{ message?: string; closeCode?: number }> {
+    return new Promise((resolve, reject) => {
+      const socket = new WebSocket(`${wsBaseUrl}${path}`, { headers });
+      socket.once("message", (data) => {
+        socket.close();
+        resolve({ message: String(data) });
+      });
+      socket.once("close", (code) => resolve({ closeCode: code }));
+      socket.once("error", reject);
+    });
+  }
+
+  afterEach(async () => {
+    const running = server;
+    server = undefined;
+    if (!running) {
+      return;
+    }
+    running.closeAllConnections();
+    await new Promise<void>((resolve) => running.close(() => resolve()));
+  });
+
+  it("parses the allowlist case-insensitively and treats empty as off", () => {
+    expect([...LOGINS]).toEqual(["owner@example.com", "second@example.com"]);
+    expect(parseTailscaleLogins(undefined).size).toBe(0);
+    expect(parseTailscaleLogins(" , ").size).toBe(0);
+  });
+
+  it("trusts the login header only from a loopback peer", () => {
+    expect(["127.0.0.1", "::1", "::ffff:127.0.0.1"].every(isLoopbackAddress)).toBe(true);
+    expect(isLoopbackAddress("203.0.113.5")).toBe(false);
+    expect(isLoopbackAddress("::ffff:203.0.113.5")).toBe(false);
+    expect(isLoopbackAddress(undefined)).toBe(false);
+
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("127.0.0.1", "OWNER@example.com"))).toBe(true);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("::1", "second@example.com"))).toBe(true);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("203.0.113.5", "owner@example.com"))).toBe(false);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("127.0.0.1", "someone@example.com"))).toBe(false);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("127.0.0.1", "owner@example.com.evil"))).toBe(false);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("127.0.0.1", ["owner@example.com", "x@y"]))).toBe(false);
+    expect(isTailscaleIdentityRequest(LOGINS, identityRequest("127.0.0.1"))).toBe(false);
+    expect(isTailscaleIdentityRequest(new Set(), identityRequest("127.0.0.1", "owner@example.com"))).toBe(false);
+    expect(isAuthorizedWebSocketRequest(TOKEN, identityRequest("203.0.113.5", "owner@example.com"), LOGINS)).toBe(false);
+    expect(isAuthorizedWebSocketRequest(TOKEN, identityRequest("127.0.0.1", "owner@example.com"), LOGINS)).toBe(true);
+  });
+
+  it("accepts an allowed login from loopback without setting the token cookie", async () => {
+    await start(LOGINS);
+    for (const path of ["/api/tmux/sessions", "/api/auth/session"]) {
+      const response = await fetch(`${baseUrl}${path}`, { headers: { "Tailscale-User-Login": "owner@example.com" } });
+      expect(response.status).toBe(200);
+      expect(response.headers.getSetCookie()).toEqual([]);
+    }
+    await expect(openSocket("/ws", { "Tailscale-User-Login": "owner@example.com" })).resolves.toEqual({ message: "hello" });
+    await expect(openSocket("/tmux-ws?session=a", { "Tailscale-User-Login": "Second@Example.com" })).resolves.toEqual({ message: "hello" });
+  });
+
+  it("rejects other logins and a missing header", async () => {
+    await start(LOGINS);
+    const wrong = await fetch(`${baseUrl}/api/tmux/sessions`, { headers: { "Tailscale-User-Login": "someone@example.com" } });
+    expect(wrong.status).toBe(401);
+    expect((await fetch(`${baseUrl}/api/tmux/sessions`)).status).toBe(401);
+    await expect(openSocket("/ws", { "Tailscale-User-Login": "someone@example.com" })).resolves.toEqual({ closeCode: 1008 });
+    await expect(openSocket("/tmux-ws?session=a")).resolves.toEqual({ closeCode: 1008 });
+  });
+
+  it("keeps token and cookie auth unchanged alongside identity auth", async () => {
+    await start(LOGINS);
+    const query = await fetch(`${baseUrl}/api/tmux/sessions?token=${TOKEN}`, { headers: { "Tailscale-User-Login": "someone@example.com" } });
+    expect(query.status).toBe(200);
+    expect(query.headers.getSetCookie()).toEqual([buildAuthCookie(TOKEN)]);
+    const cookie = await fetch(`${baseUrl}/api/tmux/sessions`, { headers: { cookie: `${AUTH_COOKIE_NAME}=${TOKEN}` } });
+    expect(cookie.status).toBe(200);
+    await expect(openSocket(`/ws?token=${TOKEN}`)).resolves.toEqual({ message: "hello" });
+  });
+
+  it("ignores the header when the feature is off", async () => {
+    await start(parseTailscaleLogins(""));
+    const response = await fetch(`${baseUrl}/api/tmux/sessions`, { headers: { "Tailscale-User-Login": "owner@example.com" } });
+    expect(response.status).toBe(401);
+    await expect(openSocket("/ws", { "Tailscale-User-Login": "owner@example.com" })).resolves.toEqual({ closeCode: 1008 });
   });
 });
