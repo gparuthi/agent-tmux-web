@@ -55,6 +55,9 @@
         { "path": "src/client/WindowSnoozeSheet.tsx", "type": "registry:file", "target": "~/src/client/WindowSnoozeSheet.tsx" },
         { "path": "src/server/windowSnooze.ts", "type": "registry:file", "target": "~/src/server/windowSnooze.ts" },
         { "path": "src/shared/windowSnooze.ts", "type": "registry:file", "target": "~/src/shared/windowSnooze.ts" },
+        { "path": "src/client/TmuxActionsSheet.tsx", "type": "registry:file", "target": "~/src/client/TmuxActionsSheet.tsx" },
+        { "path": "src/client/tmuxActions.ts", "type": "registry:file", "target": "~/src/client/tmuxActions.ts" },
+        { "path": "src/server/tpalActions.ts", "type": "registry:file", "target": "~/src/server/tpalActions.ts" },
         { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
@@ -281,6 +284,21 @@
           "path": "src/shared/windowSnooze.ts",
           "type": "registry:file",
           "target": "~/src/shared/windowSnooze.ts"
+        },
+        {
+          "path": "src/client/TmuxActionsSheet.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TmuxActionsSheet.tsx"
+        },
+        {
+          "path": "src/client/tmuxActions.ts",
+          "type": "registry:file",
+          "target": "~/src/client/tmuxActions.ts"
+        },
+        {
+          "path": "src/server/tpalActions.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tpalActions.ts"
         },
         {
           "path": "src/server/agentRows.ts",

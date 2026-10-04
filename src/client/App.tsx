@@ -15,6 +15,7 @@ import {
   Bot,
   Check,
   CircleStop,
+  Command,
   CornerDownLeft,
   Copy,
   Cpu,
@@ -47,6 +48,9 @@ import {
   type CodexModel,
   type CodexSkill,
   type StartAgentResultDto,
+  type TmuxActionDto,
+  type TmuxActionRunDto,
+  type TmuxActionsDto,
   type TmuxCaptureDto,
   type TmuxSessionDto,
   type TmuxWatchEvent,
@@ -131,6 +135,9 @@ import {
 import { TmuxKeyStrip } from "./TmuxKeyStrip.js";
 import { NewAgentSheet } from "./NewAgentSheet.js";
 import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
+import { TmuxActionsSheet } from "./TmuxActionsSheet.js";
+import { formatTmuxActionResult } from "./tmuxActions.js";
+import { readApiErrorMessage } from "./newAgent.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
 import {
   DEFAULT_TMUX_VIEW_STORAGE_KEY,
@@ -213,6 +220,7 @@ const DEMO_STATUS: AppStatus = {
   tailscaleIp: "100.x.y.z",
   tailscaleDns: "agent-server.tailnet.example",
   windowSnooze: false,
+  paneActions: false,
   codex: {
     connected: false,
     appServerUrl: "ws://127.0.0.1:43117",
@@ -345,6 +353,8 @@ export function App() {
   const [error, setError] = useState("");
   const [newAgentOpen, setNewAgentOpen] = useState(false);
   const [windowSnoozeTarget, setWindowSnoozeTarget] = useState("");
+  const [tmuxActionsTarget, setTmuxActionsTarget] = useState("");
+  const [tmuxToast, setTmuxToast] = useState<{ text: string; error: boolean } | null>(null);
   const [pinnedTmuxSessionNames, setPinnedTmuxSessionNames] = useState<string[]>(readInitialPinnedTmuxSessionNames);
   const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
   const [tmuxPaneViews, setTmuxPaneViews] = useState<TmuxPaneViews>(readInitialTmuxPaneViews);
@@ -441,6 +451,14 @@ export function App() {
   const windowSnoozeAvailable = !demoMode && Boolean(status?.windowSnooze);
   const selectedTmuxSnoozable = windowSnoozeAvailable && Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
   const windowSnoozeEntry = windowSnoozeTarget ? findTmuxPane(tmuxSessions, windowSnoozeTarget) : undefined;
+  // tpal reads this host's panes too; its list and run calls only take local pane ids.
+  const paneActionsAvailable = !demoMode && Boolean(status?.paneActions);
+  const selectedTmuxLocalPane = Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
+  const tmuxActionsEntry = tmuxActionsTarget ? findTmuxPane(tmuxSessions, tmuxActionsTarget) : undefined;
+  const loadTmuxActions = useCallback(
+    () => api<{ data: TmuxActionsDto }>(`/api/tmux/actions?target=${encodeURIComponent(tmuxActionsTarget)}`).then((result) => result.data),
+    [tmuxActionsTarget]
+  );
 
   const baseUrl = useMemo(() => {
     if (!status) {
@@ -622,6 +640,14 @@ export function App() {
       writeStoredValue(LAST_TMUX_PANE_STORAGE_KEY, selectedTmux);
     }
   }, [selectedTmux]);
+
+  useEffect(() => {
+    if (!tmuxToast) {
+      return;
+    }
+    const timer = window.setTimeout(() => setTmuxToast(null), tmuxToast.error ? 10_000 : 6_000);
+    return () => window.clearTimeout(timer);
+  }, [tmuxToast]);
 
   // Arriving at or leaving a pane marks its output seen, so the rail dims it like tmux's activity flag.
   const viewedTmuxPaneRef = useRef("");
@@ -1856,6 +1882,27 @@ export function App() {
     setTerminalStatus(`woke ${target}'s window`);
   }
 
+  function openTmuxActionsSheet() {
+    if (paneActionsAvailable && selectedTmuxLocalPane) {
+      closeTmuxSettingsMenu();
+      setTmuxActionsTarget(selectedTmux);
+    }
+  }
+
+  async function runTmuxAction(target: string, action: TmuxActionDto): Promise<string> {
+    const result = await api<{ data: TmuxActionRunDto }>("/api/tmux/actions/run", {
+      method: "POST",
+      body: JSON.stringify({ target, name: action.name, ...(action.confirm ? { yes: true } : {}) })
+    });
+    return result.data.output;
+  }
+
+  function handleTmuxActionResult({ action, output, error: actionError }: { action: TmuxActionDto; output?: string; error?: string }) {
+    setTmuxActionsTarget("");
+    setTmuxToast(actionError ? { text: `${action.name}: ${actionError}`, error: true } : { text: formatTmuxActionResult(action.name, output ?? ""), error: false });
+    void loadTmuxSessions().catch(() => undefined);
+  }
+
   function handleAgentStarted(result: StartAgentResultDto) {
     setNewAgentOpen(false);
     setTmuxSessions(result.sessions);
@@ -2437,6 +2484,15 @@ export function App() {
                 <Ellipsis aria-hidden="true" size={16} />
               </summary>
               <div className="tmux-view-menu-content tmux-settings-menu-content" role="menu">
+                {paneActionsAvailable && (
+                  <div className="tmux-view-menu-section tmux-settings-actions">
+                    <span>This pane</span>
+                    <button disabled={!selectedTmuxLocalPane} role="menuitem" type="button" onClick={openTmuxActionsSheet}>
+                      <Command size={15} />
+                      <span>Actions…</span>
+                    </button>
+                  </div>
+                )}
                 <div className="tmux-view-menu-section tmux-settings-actions">
                   <span>Panes</span>
                   <button
@@ -2534,7 +2590,7 @@ export function App() {
               onSelect={selectTmuxSession}
               onTogglePin={toggleTmuxSessionPin}
               onToggleGroup={setTmuxSessionGroupCollapsedPreference}
-              onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch(reportError(setError)) : undefined}
+              onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch((wakeError: unknown) => setTmuxToast({ text: readApiErrorMessage(wakeError), error: true })) : undefined}
             />
           </div>
           <div className="tmux-connection-status">
@@ -2621,6 +2677,26 @@ export function App() {
           )}
         </div>
       </aside>
+      {tmuxActionsEntry && (
+        <TmuxActionsSheet
+          loadActions={loadTmuxActions}
+          paneName={tmuxPaneDisplayName(tmuxActionsEntry)}
+          runAction={(action) => runTmuxAction(tmuxActionsEntry.name, action)}
+          onClose={() => setTmuxActionsTarget("")}
+          onResult={handleTmuxActionResult}
+        />
+      )}
+      {tmuxToast && (
+        <button
+          className={`tmux-toast ${tmuxToast.error ? "error" : ""}`}
+          role={tmuxToast.error ? "alert" : "status"}
+          title="Dismiss"
+          type="button"
+          onClick={() => setTmuxToast(null)}
+        >
+          {tmuxToast.text}
+        </button>
+      )}
       {windowSnoozeEntry && (
         <WindowSnoozeSheet
           paneName={tmuxPaneDisplayName(windowSnoozeEntry)}

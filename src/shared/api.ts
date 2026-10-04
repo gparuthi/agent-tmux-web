@@ -49,6 +49,30 @@ export type TmuxSessionDto = {
   snoozedUntilMs?: number;
 };
 
+// A tpal palette action atw can run without a tmux client (tpal list --json, needsClient false).
+export type TmuxActionDto = {
+  name: string;
+  desc: string;
+  kind: "run" | "builtin";
+  // tpal's rank group: "this pane", "recently used" or "all".
+  group?: string;
+  when?: string;
+  recent?: boolean;
+  // tpal's y/n question (restart codex in yolo mode); running it needs yes.
+  confirm?: string;
+};
+
+export type TmuxActionsDto = {
+  target: string;
+  // tpal's header, e.g. "pane %3 · claude 2.1.287 · my-session".
+  header: string;
+  actions: TmuxActionDto[];
+};
+
+export type TmuxActionRunDto = {
+  output: string;
+};
+
 // Same five states and colours as gpmon's agents panel.
 export type TmuxSessionStatusKind = "working" | "blocked" | "done" | "idle" | "unknown";
 
@@ -148,6 +172,8 @@ export type AppStatus = {
   tailscaleDns: string | null;
   // tmux-hide-window is installed, so panes can snooze their window.
   windowSnooze: boolean;
+  // tpal is installed, so the selected pane offers its palette actions.
+  paneActions: boolean;
   codex: {
     connected: boolean;
     appServerUrl: string;

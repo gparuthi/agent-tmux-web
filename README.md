@@ -287,6 +287,9 @@ Common variables:
   Snooze window button and the rail's Wake action. Defaults to
   `~/.gp/tools/tmux-hide-window/tmux-hide-window`; empty, missing or
   non-executable hides the button.
+- `ATW_TPAL_BIN`: path to `tpal`, whose `list --json` and `run` back the
+  overflow menu's pane Actions. Defaults to `~/.gp/tools/tpal/tpal`; empty,
+  missing or non-executable hides the entry.
 - `AGENT_TMUX_WEB_LAST_INPUT_FILE`: where the per-pane "last input" times that
   sort the session list are saved. Defaults to `~/.local/state/atw/last-input.json`.
 - `AGENT_TMUX_WEB_JSON_LIMIT`: request body limit for large pasted prompts and

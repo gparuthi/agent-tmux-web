@@ -79,6 +79,7 @@ import {
 } from "./uploads.js";
 import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
+import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 
 const execFileAsync = promisify(execFile);
@@ -370,6 +371,11 @@ app.use(createWindowSnoozeRouter({
   hideWindowBin: () => findHideWindowBin(),
   listPanes: listTmuxSessions,
   listSessions: () => listTmuxSessionsWithStatus()
+}));
+
+app.use(createTpalActionsRouter({
+  tpalBin: () => findTpalBin(),
+  listPanes: listTmuxSessions
 }));
 
 app.post("/api/tmux/open-codex", asyncHandler(async (req, res) => {
@@ -990,9 +996,10 @@ function broadcast(payload: unknown): void {
 }
 
 async function getStatus(): Promise<AppStatus> {
-  const [tailscale, hideWindowBin] = await Promise.all([
+  const [tailscale, hideWindowBin, tpalBin] = await Promise.all([
     readTailscale().catch(() => ({ ip: null, dns: null })),
-    findHideWindowBin()
+    findHideWindowBin(),
+    findTpalBin()
   ]);
   return {
     environment: runtimeEnvironment,
@@ -1002,6 +1009,7 @@ async function getStatus(): Promise<AppStatus> {
     tailscaleIp: tailscale.ip,
     tailscaleDns: tailscale.dns,
     windowSnooze: hideWindowBin !== null,
+    paneActions: tpalBin !== null,
     codex: {
       connected: bridge.connected,
       appServerUrl: bridge.appServerUrl,

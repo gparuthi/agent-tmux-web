@@ -8,7 +8,7 @@ import { Router, type NextFunction, type Request, type Response } from "express"
 
 import type { TmuxSessionDto } from "../shared/api.js";
 import { isValidWindowSnoozeDuration } from "../shared/windowSnooze.js";
-import { HIDDEN_TMUX_SESSION, splitTmuxPaneTarget, TmuxRequestError, type TmuxSession } from "./tmux.js";
+import { HIDDEN_TMUX_SESSION, resolveLocalTmuxPane, TmuxRequestError, type TmuxSession } from "./tmux.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -70,13 +70,9 @@ export async function readTmuxWindowPlacement(target: string): Promise<TmuxWindo
   return parseTmuxWindowPlacement(stdout);
 }
 
-// Only a listed pane on this host's tmux server; shim panes live in containers the tool can't reach.
+// tmux-hide-window runs against this host's tmux server, so only local panes.
 export function resolveSnoozablePane(entries: TmuxSession[], requested: unknown): TmuxSession {
-  const entry = typeof requested === "string" ? entries.find((candidate) => candidate.name === requested && candidate.paneId) : undefined;
-  if (!entry || splitTmuxPaneTarget(entry.name)?.routingPrefix !== "") {
-    throw new TmuxRequestError(`Unknown tmux pane: ${JSON.stringify(requested ?? null).slice(0, 40)}`);
-  }
-  return entry;
+  return resolveLocalTmuxPane(entries, requested);
 }
 
 export function requireWindowSnoozeDuration(value: unknown): string {

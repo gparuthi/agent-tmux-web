@@ -248,6 +248,15 @@ export function resolveClosableTmuxPane(entries: TmuxSession[], requested: unkno
   return entry;
 }
 
+// A listed pane on this host's tmux server; shim panes live in containers host tools can't reach.
+export function resolveLocalTmuxPane(entries: TmuxSession[], requested: unknown): TmuxSession {
+  const entry = resolveClosableTmuxPane(entries, requested);
+  if (splitTmuxPaneTarget(entry.name)?.routingPrefix !== "") {
+    throw new TmuxRequestError(`Unknown tmux pane: ${JSON.stringify(requested ?? null).slice(0, 40)}`);
+  }
+  return entry;
+}
+
 export async function closeTmuxPane(paneTarget: string): Promise<void> {
   await execFileAsync("tmux", buildTmuxKillPaneArgs(paneTarget));
 }
