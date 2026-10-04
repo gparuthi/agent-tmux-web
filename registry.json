@@ -60,6 +60,7 @@
         { "path": "src/client/TmuxSessionList.tsx", "type": "registry:file", "target": "~/src/client/TmuxSessionList.tsx" },
         { "path": "src/client/TmuxKeyStrip.tsx", "type": "registry:file", "target": "~/src/client/TmuxKeyStrip.tsx" },
         { "path": "src/client/ansi.ts", "type": "registry:file", "target": "~/src/client/ansi.ts" },
+        { "path": "src/client/accessToken.ts", "type": "registry:file", "target": "~/src/client/accessToken.ts" },
         { "path": "src/client/androidBridge.ts", "type": "registry:file", "target": "~/src/client/androidBridge.ts" },
         { "path": "src/client/androidConnectionSettings.ts", "type": "registry:file", "target": "~/src/client/androidConnectionSettings.ts" },
         { "path": "src/client/browserNotifications.ts", "type": "registry:file", "target": "~/src/client/browserNotifications.ts" },
@@ -88,6 +89,7 @@
         { "path": "src/client/tmuxViewPreferences.ts", "type": "registry:file", "target": "~/src/client/tmuxViewPreferences.ts" },
         { "path": "src/client/__tests__/browserNotifications.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/browserNotifications.test.ts" },
         { "path": "src/client/__tests__/clipboard.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/clipboard.test.ts" },
+        { "path": "src/client/__tests__/accessToken.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/accessToken.test.ts" },
         { "path": "src/client/__tests__/ansi.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/ansi.test.ts" },
         { "path": "src/client/__tests__/androidConnectionSettings.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/androidConnectionSettings.test.ts" },
         { "path": "src/client/__tests__/inputBehavior.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/inputBehavior.test.ts" },
@@ -112,6 +114,7 @@
         { "path": "src/client/__tests__/tmuxToolPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxToolPreferences.test.ts" },
         { "path": "src/client/__tests__/tmuxViewPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts" },
         { "path": "src/server/agents.ts", "type": "registry:file", "target": "~/src/server/agents.ts" },
+        { "path": "src/server/auth.ts", "type": "registry:file", "target": "~/src/server/auth.ts" },
         { "path": "src/server/authToken.ts", "type": "registry:file", "target": "~/src/server/authToken.ts" },
         { "path": "src/server/codexBridge.ts", "type": "registry:file", "target": "~/src/server/codexBridge.ts" },
         { "path": "src/server/index.ts", "type": "registry:file", "target": "~/src/server/index.ts" },
@@ -120,6 +123,7 @@
         { "path": "src/server/tmuxWatch.ts", "type": "registry:file", "target": "~/src/server/tmuxWatch.ts" },
         { "path": "src/server/uploads.ts", "type": "registry:file", "target": "~/src/server/uploads.ts" },
         { "path": "src/server/__tests__/agents.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/agents.test.ts" },
+        { "path": "src/server/__tests__/auth.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/auth.test.ts" },
         { "path": "src/server/__tests__/authToken.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/authToken.test.ts" },
         { "path": "src/server/__tests__/terminal.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/terminal.test.ts" },
         { "path": "src/server/__tests__/tmux.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/tmux.test.ts" },
@@ -300,6 +304,11 @@
           "target": "~/src/client/ansi.ts"
         },
         {
+          "path": "src/client/accessToken.ts",
+          "type": "registry:file",
+          "target": "~/src/client/accessToken.ts"
+        },
+        {
           "path": "src/client/androidBridge.ts",
           "type": "registry:file",
           "target": "~/src/client/androidBridge.ts"
@@ -440,6 +449,11 @@
           "target": "~/src/client/__tests__/clipboard.test.ts"
         },
         {
+          "path": "src/client/__tests__/accessToken.test.ts",
+          "type": "registry:file",
+          "target": "~/src/client/__tests__/accessToken.test.ts"
+        },
+        {
           "path": "src/client/__tests__/ansi.test.ts",
           "type": "registry:file",
           "target": "~/src/client/__tests__/ansi.test.ts"
@@ -560,6 +574,11 @@
           "target": "~/src/server/agents.ts"
         },
         {
+          "path": "src/server/auth.ts",
+          "type": "registry:file",
+          "target": "~/src/server/auth.ts"
+        },
+        {
           "path": "src/server/authToken.ts",
           "type": "registry:file",
           "target": "~/src/server/authToken.ts"
@@ -598,6 +617,11 @@
           "path": "src/server/__tests__/agents.test.ts",
           "type": "registry:file",
           "target": "~/src/server/__tests__/agents.test.ts"
+        },
+        {
+          "path": "src/server/__tests__/auth.test.ts",
+          "type": "registry:file",
+          "target": "~/src/server/__tests__/auth.test.ts"
         },
         {
           "path": "src/server/__tests__/authToken.test.ts",

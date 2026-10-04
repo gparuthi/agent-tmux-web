@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -18,6 +18,7 @@ import {
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, mergeTmuxSessionStatus } from "../shared/tmuxStatus.js";
 import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
+import { createAuthMiddleware, isAuthorizedWebSocketRequest } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
 import { ClaudePromptTimes } from "./claudePrompts.js";
 import { CodexBridge } from "./codexBridge.js";
@@ -149,22 +150,17 @@ app.use((req, res, next) => {
   jsonBodyParser(req, res, next);
 });
 
-app.use((req, res, next) => {
-  if (!authToken || req.path === "/healthz" || isPublicAssetRequest(req)) {
-    next();
-    return;
-  }
-
-  const provided = req.header("x-agent-tmux-web-token") ?? req.header("x-codex-web-token") ?? String(req.query.token ?? "");
-  if (isValidAuthToken(provided)) {
-    next();
-    return;
-  }
-
-  res.status(401).json({ error: "Unauthorized" });
-});
+app.use(createAuthMiddleware({
+  authToken,
+  isPublicRequest: (req) => req.path === "/healthz" || isPublicAssetRequest(req)
+}));
 
 app.get("/healthz", (_req, res) => {
+  res.json({ ok: true });
+});
+
+// Lets the client confirm the auth cookie works before it drops the token from the URL.
+app.get("/api/auth/session", (_req, res) => {
   res.json({ ok: true });
 });
 
@@ -574,8 +570,7 @@ if (developmentMode) {
 
 const wss = new WebSocketServer({ noServer: true });
 wss.on("connection", async (socket, req) => {
-  const url = new URL(req.url ?? "/ws", `http://${req.headers.host ?? "localhost"}`);
-  if (!isAuthorizedWebSocket(url)) {
+  if (!isAuthorizedWebSocketRequest(authToken, req)) {
     socket.close(1008, "Unauthorized");
     return;
   }
@@ -591,7 +586,7 @@ wss.on("connection", async (socket, req) => {
 const tmuxWss = new WebSocketServer({ noServer: true });
 tmuxWss.on("connection", async (socket, req) => {
   const url = new URL(req.url ?? "/tmux-ws", `http://${req.headers.host ?? "localhost"}`);
-  if (!isAuthorizedWebSocket(url)) {
+  if (!isAuthorizedWebSocketRequest(authToken, req)) {
     socket.close(1008, "Unauthorized");
     return;
   }
@@ -797,20 +792,6 @@ function isPublicAssetRequest(req: Request): boolean {
     || normalizedPath === "/favicon.png"
     || (developmentMode && req.path !== "/" && !normalizedPath.startsWith("/api/"))
   );
-}
-
-function isAuthorizedWebSocket(url: URL): boolean {
-  return !authToken || isValidAuthToken(url.searchParams.get("token") ?? "");
-}
-
-function isValidAuthToken(provided: string): boolean {
-  if (!authToken || !provided) {
-    return false;
-  }
-
-  const expected = Buffer.from(authToken);
-  const actual = Buffer.from(provided);
-  return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
 function sendTerminalMessage(socket: WebSocket, payload: unknown): void {

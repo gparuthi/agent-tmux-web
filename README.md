@@ -160,6 +160,11 @@ Open:
 http://100.x.y.z:6174/?token=<generated-token>
 ```
 
+Over HTTPS (for example behind `tailscale serve`), the first visit stores the
+token in an `HttpOnly`, `SameSite=Strict` cookie and drops it from the address
+bar, so later visits work from the plain URL. Header and `?token=` callers keep
+working unchanged.
+
 For AI-assisted setup, give your assistant [AI_SETUP.md](./AI_SETUP.md). It is a
 checklist for installing privately, verifying tmux, launchers, uploads, raw
 mode, and notifications.

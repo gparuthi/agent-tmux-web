@@ -65,6 +65,7 @@ import {
   type SlashCommand
 } from "./slashCommands.js";
 import { COLOR_THEME_STORAGE_KEY, resolveInitialColorTheme, type ColorTheme } from "./theme.js";
+import { dropAccessTokenFromAddressBar, readAccessToken } from "./accessToken.js";
 import { writeClipboardText } from "./clipboard.js";
 import { applyTextareaPaste, buildPastedPromptText, extractPastedImageFiles, formatUploadedFilesForPrompt, isMobileInputDevice, readClipboardImageFiles, readInputDeviceContext, shouldSubmitTextareaEnter } from "./inputBehavior.js";
 import { LinkifiedText } from "./LinkifiedText.js";
@@ -212,6 +213,8 @@ const TMUX_SESSION_STATUS_POLL_INTERVAL_MS = 3_000;
 const TMUX_SCROLL_ANCHOR_SELECTOR = "[data-tmux-scroll-anchor]";
 const BROWSER_CLIENT_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const demoMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
+// Read once so API and socket auth survive dropping the token from the address bar.
+const initialAccessToken = typeof window === "undefined" ? "" : readAccessToken(window.location.search);
 const DEMO_STATUS: AppStatus = {
   environment: "production",
   bindHost: "127.0.0.1",
@@ -907,10 +910,23 @@ export function App() {
     if (demoMode) {
       return;
     }
+    void dropAccessTokenFromAddressBar({
+      token: initialAccessToken,
+      isAndroidApp: Boolean(window.AgentTmuxAndroid),
+      checkCookieSession: hasCookieSession,
+      currentHref: () => window.location.href,
+      replaceHref: (href) => window.history.replaceState(window.history.state, "", href)
+    });
+  }, []);
+
+  useEffect(() => {
+    if (demoMode) {
+      return;
+    }
     let socket: WebSocket | null = null;
     // Let React Strict Mode cancel its throwaway effect pass before opening a socket.
     const connectTimer = window.setTimeout(() => {
-      const token = new URLSearchParams(window.location.search).get("token");
+      const token = browserAccessToken();
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
       socket = new WebSocket(`${protocol}://${window.location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`);
       socket.onmessage = (event) => {
@@ -1112,7 +1128,7 @@ export function App() {
         cols: String(dimensions.cols),
         rows: String(dimensions.rows)
       });
-      const token = new URLSearchParams(window.location.search).get("token");
+      const token = browserAccessToken();
       if (token) {
         params.set("token", token);
       }
@@ -2943,7 +2959,12 @@ async function uploadFileToServer(file: File): Promise<UploadedFileDto> {
 }
 
 function browserAccessToken(): string {
-  return typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("token")?.trim() ?? "";
+  return initialAccessToken;
+}
+
+async function hasCookieSession(): Promise<boolean> {
+  const response = await fetch("/api/auth/session", { credentials: "same-origin" });
+  return response.ok;
 }
 
 function readInitialRequestedTmuxSession(): string {
