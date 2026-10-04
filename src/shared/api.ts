@@ -42,6 +42,8 @@ export type TmuxSessionDto = {
   // Owner's last keystroke into this pane: atw sends or a real terminal client (not pane output).
   lastInputAtMs?: number;
   currentCommand?: string;
+  // Agent CLI in the pane, from its process tree (local panes) or pane_current_command.
+  agent?: string;
   status?: TmuxSessionStatusDto;
 };
 

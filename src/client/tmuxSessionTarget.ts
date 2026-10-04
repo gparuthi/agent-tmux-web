@@ -68,11 +68,6 @@ export function findTmuxPane(entries: TmuxSessionDto[], target: string): TmuxSes
   return entries.find((entry) => entry.name === target);
 }
 
-export function findTmuxPaneForSession(entries: TmuxSessionDto[], session: string): TmuxSessionDto | undefined {
-  const panes = entries.filter((entry) => (entry.session ?? entry.name) === session);
-  return panes.find((entry) => entry.windowActive && entry.paneActive) ?? panes[0];
-}
-
 export function defaultTmuxPaneSelection(entries: TmuxSessionDto[]): string {
   const attached = entries.filter((entry) => entry.attached);
   return (attached.find((entry) => entry.windowActive && entry.paneActive) ?? attached[0] ?? entries[0])?.name ?? "";

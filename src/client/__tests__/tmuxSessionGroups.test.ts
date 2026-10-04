@@ -179,6 +179,12 @@ describe("agent pane filter", () => {
     expect(filterTmuxAgentPanes(entries, false, "%2").map(({ name }) => name)).toEqual(["%1", "%2", "%3", "%4", "%5"]);
     expect(filterTmuxAgentPanes(entries, true, "")).toHaveLength(entries.length);
   });
+
+  it("prefers the server's process-tree agent over tmux's foreground command", () => {
+    const codexUnderNode = pane("%8", "main", { currentCommand: "node", agent: "codex" });
+    const plainNode = pane("%9", "main", { currentCommand: "node" });
+    expect(filterTmuxAgentPanes([codexUnderNode, plainNode], false, "").map(({ name }) => name)).toEqual(["%8"]);
+  });
 });
 
 describe("unseen pane activity", () => {

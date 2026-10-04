@@ -85,7 +85,6 @@
         { "path": "src/client/tmuxOutputLines.tsx", "type": "registry:file", "target": "~/src/client/tmuxOutputLines.tsx" },
         { "path": "src/client/tmuxOperationGuards.ts", "type": "registry:file", "target": "~/src/client/tmuxOperationGuards.ts" },
         { "path": "src/client/tmuxSessionTarget.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionTarget.ts" },
-        { "path": "src/client/tmuxToolPreferences.ts", "type": "registry:file", "target": "~/src/client/tmuxToolPreferences.ts" },
         { "path": "src/client/tmuxViewPreferences.ts", "type": "registry:file", "target": "~/src/client/tmuxViewPreferences.ts" },
         { "path": "src/client/__tests__/browserNotifications.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/browserNotifications.test.ts" },
         { "path": "src/client/__tests__/clipboard.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/clipboard.test.ts" },
@@ -111,9 +110,9 @@
         { "path": "src/client/__tests__/tmuxOutputLines.test.tsx", "type": "registry:file", "target": "~/src/client/__tests__/tmuxOutputLines.test.tsx" },
         { "path": "src/client/__tests__/tmuxOperationGuards.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxOperationGuards.test.ts" },
         { "path": "src/client/__tests__/tmuxSessionTarget.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxSessionTarget.test.ts" },
-        { "path": "src/client/__tests__/tmuxToolPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxToolPreferences.test.ts" },
         { "path": "src/client/__tests__/tmuxViewPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts" },
         { "path": "src/server/agents.ts", "type": "registry:file", "target": "~/src/server/agents.ts" },
+        { "path": "src/server/paneAgents.ts", "type": "registry:file", "target": "~/src/server/paneAgents.ts" },
         { "path": "src/server/auth.ts", "type": "registry:file", "target": "~/src/server/auth.ts" },
         { "path": "src/server/authToken.ts", "type": "registry:file", "target": "~/src/server/authToken.ts" },
         { "path": "src/server/codexBridge.ts", "type": "registry:file", "target": "~/src/server/codexBridge.ts" },
@@ -123,6 +122,7 @@
         { "path": "src/server/tmuxWatch.ts", "type": "registry:file", "target": "~/src/server/tmuxWatch.ts" },
         { "path": "src/server/uploads.ts", "type": "registry:file", "target": "~/src/server/uploads.ts" },
         { "path": "src/server/__tests__/agents.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/agents.test.ts" },
+        { "path": "src/server/__tests__/paneAgents.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/paneAgents.test.ts" },
         { "path": "src/server/__tests__/auth.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/auth.test.ts" },
         { "path": "src/server/__tests__/authToken.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/authToken.test.ts" },
         { "path": "src/server/__tests__/terminal.test.ts", "type": "registry:file", "target": "~/src/server/__tests__/terminal.test.ts" },
@@ -429,11 +429,6 @@
           "target": "~/src/client/tmuxSessionTarget.ts"
         },
         {
-          "path": "src/client/tmuxToolPreferences.ts",
-          "type": "registry:file",
-          "target": "~/src/client/tmuxToolPreferences.ts"
-        },
-        {
           "path": "src/client/tmuxViewPreferences.ts",
           "type": "registry:file",
           "target": "~/src/client/tmuxViewPreferences.ts"
@@ -559,11 +554,6 @@
           "target": "~/src/client/__tests__/tmuxSessionTarget.test.ts"
         },
         {
-          "path": "src/client/__tests__/tmuxToolPreferences.test.ts",
-          "type": "registry:file",
-          "target": "~/src/client/__tests__/tmuxToolPreferences.test.ts"
-        },
-        {
           "path": "src/client/__tests__/tmuxViewPreferences.test.ts",
           "type": "registry:file",
           "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts"
@@ -572,6 +562,11 @@
           "path": "src/server/agents.ts",
           "type": "registry:file",
           "target": "~/src/server/agents.ts"
+        },
+        {
+          "path": "src/server/paneAgents.ts",
+          "type": "registry:file",
+          "target": "~/src/server/paneAgents.ts"
         },
         {
           "path": "src/server/auth.ts",
@@ -617,6 +612,11 @@
           "path": "src/server/__tests__/agents.test.ts",
           "type": "registry:file",
           "target": "~/src/server/__tests__/agents.test.ts"
+        },
+        {
+          "path": "src/server/__tests__/paneAgents.test.ts",
+          "type": "registry:file",
+          "target": "~/src/server/__tests__/paneAgents.test.ts"
         },
         {
           "path": "src/server/__tests__/auth.test.ts",

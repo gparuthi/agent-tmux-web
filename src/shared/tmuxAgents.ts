@@ -11,3 +11,8 @@ export function tmuxPaneAgent(command: string | undefined): string | null {
   const name = displayTmuxPaneCommand(command).split(/[/\\]/).pop()?.replace(/\.exe$/i, "").toLowerCase() ?? "";
   return TMUX_AGENT_COMMANDS.includes(name) ? name : null;
 }
+
+// The server's process-tree agent when it sent one, else tmux's pane_current_command.
+export function tmuxEntryAgent(entry: { agent?: string; currentCommand?: string }): string | null {
+  return entry.agent || tmuxPaneAgent(entry.currentCommand);
+}

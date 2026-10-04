@@ -410,8 +410,6 @@ textarea:focus {
 .top-actions button,
 .composer button,
 .tmux-send button,
-.tmux-actions button,
-.tmux-tool-actions button,
 .tmux-compact-bar button,
 .tmux-terminal-toolbar button,
 .tmux-view-menu summary,
@@ -438,11 +436,6 @@ textarea:focus {
 .tmux-compact-bar button,
 .tmux-terminal-toolbar button,
 .tmux-view-menu summary,
-.tmux-actions input,
-.tmux-actions button,
-.tmux-tool-actions input,
-.tmux-tool-actions select,
-.tmux-tool-actions button,
 .tmux-send button {
   height: 34px;
 }
@@ -450,8 +443,6 @@ textarea:focus {
 .tmux-compact-bar button,
 .tmux-terminal-toolbar button,
 .tmux-view-menu summary,
-.tmux-actions button,
-.tmux-tool-actions button,
 .tmux-send button,
 .tmux-soft-keys button {
   border: 1px solid var(--border-strong);
@@ -1105,119 +1096,6 @@ textarea:focus {
   display: none;
 }
 
-.tmux-actions {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 34px;
-  gap: 8px;
-  margin: 0;
-}
-
-.tmux-tool-actions {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.tmux-tool-picker,
-.tmux-tool-command {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-}
-
-.tmux-tool-picker {
-  grid-template-columns: minmax(0, 1fr) 34px 34px;
-}
-
-.tmux-tool-command {
-  grid-template-columns: minmax(0, 1fr) auto auto;
-}
-
-.tmux-tool-picker select,
-.tmux-tool-command input {
-  min-width: 0;
-}
-
-.tmux-tool-icon-button {
-  width: 34px;
-  padding: 0;
-}
-
-.tmux-tool-icon-button.active {
-  background: var(--accent);
-  color: var(--accent-text);
-}
-
-.tmux-custom-tool-form {
-  display: grid;
-  grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
-  gap: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-
-.tmux-custom-tool-form label {
-  min-width: 0;
-  margin: 0;
-}
-
-.tmux-custom-tool-buttons {
-  display: flex;
-  grid-column: 1 / -1;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.tmux-custom-tool-buttons button {
-  min-width: 78px;
-}
-
-.tmux-tool-modes {
-  display: grid;
-  gap: 8px;
-  margin: 0;
-}
-
-.tmux-mode-section {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.tmux-mode-section .tmux-rail-section-title {
-  flex: 0 0 100%;
-}
-
-.tmux-tool-modes label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 34px;
-  margin: 0;
-  padding: 0 9px;
-  border: 1px solid var(--border-strong);
-  border-radius: 2px;
-  background: var(--surface-control);
-  color: var(--text-control);
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.tmux-tool-modes label.dangerous {
-  border-color: color-mix(in srgb, var(--error-text) 55%, var(--border-strong));
-  color: var(--error-text);
-}
-
-.tmux-tool-modes input {
-  width: 14px;
-  height: 14px;
-  accent-color: var(--accent);
-}
-
-.tmux-tool-modes label.dangerous input {
-  accent-color: var(--error-text);
-}
-
 .tmux-terminal-toolbar {
   display: grid;
   grid-template-columns: minmax(0, auto) 34px 34px auto 34px minmax(0, 1fr) 34px;
@@ -1767,38 +1645,6 @@ textarea:focus {
 
   .tmux-session-row {
     max-width: none;
-  }
-
-  .tmux-actions {
-    flex: none;
-    grid-template-columns: minmax(0, 1fr) 38px;
-    margin: 8px 0;
-  }
-
-  .tmux-tool-actions {
-    margin-bottom: 8px;
-  }
-
-  .tmux-tool-icon-button,
-  .tmux-tool-command > button {
-    width: 38px;
-    padding: 0;
-  }
-
-  .tmux-tool-command > button svg {
-    margin: 0;
-  }
-
-  .tmux-tool-command > button {
-    font-size: 0;
-  }
-
-  .tmux-custom-tool-form {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .tmux-custom-tool-buttons {
-    grid-column: 1;
   }
 
   .tmux-control-rail {

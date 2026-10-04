@@ -22,6 +22,7 @@ import { createAuthMiddleware, isAuthorizedWebSocketRequest } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
 import { ClaudePromptTimes } from "./claudePrompts.js";
 import { CodexBridge } from "./codexBridge.js";
+import { readTmuxPaneAgents } from "./paneAgents.js";
 import {
   buildBrowserRawTerminalPolicy,
   buildTmuxCaptureSizeFromClientDimensions,
@@ -39,6 +40,7 @@ import {
   type TmuxWindowState
 } from "./terminal.js";
 import {
+  buildTmuxPaneAgentLabel,
   captureTmuxPane,
   captureTmuxPaneView,
   captureTmuxVisiblePane,
@@ -461,7 +463,11 @@ app.get("/api/tmux/watch/status", asyncHandler(async (_req, res) => {
 
 async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | null): Promise<TmuxSessionDto[]> {
   const sessions = await listTmuxSessions();
-  const [harnessStatuses, clientActivity] = await Promise.all([readTmuxHarnessStatuses(sessions), readTmuxClientActivity()]);
+  const [harnessStatuses, clientActivity, paneAgents] = await Promise.all([
+    readTmuxHarnessStatuses(sessions),
+    readTmuxClientActivity(),
+    readTmuxPaneAgents(sessions)
+  ]);
   const nowMs = Date.now();
   // Local panes only: list-clients and Claude's session files describe this host's tmux server.
   const localPanes = sessions.filter((session) => session.name === session.paneId);
@@ -488,8 +494,10 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       local ? clientActivity.get(session.name) : undefined,
       local ? promptTimes.get(session.name) : undefined
     );
+    const agent = paneAgents.get(session.name);
     return {
       ...sessionData,
+      ...(agent ? { agent, label: buildTmuxPaneAgentLabel(session, agent) } : {}),
       ...(lastInputAtMs ? { lastInputAtMs } : {}),
       // Raw browsers attach through grouped sessions, so add other browsers' raw views explicitly.
       viewerCount: Math.max(0, clientCount + totalRawTerminalClientCount(session.name) - rawTerminalClientCount(excludedBrowserClientId, session.name)),

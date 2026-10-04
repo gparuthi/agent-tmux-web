@@ -526,6 +526,20 @@ export function buildTmuxPaneLabel(
   return [`${pane.session}:${pane.windowIndex}.${pane.paneIndex}`, command, shortPath].filter(Boolean).join(" \u00b7 ");
 }
 
+// The detected agent names the pane instead of its foreground process (e.g. "node" for codex).
+export function buildTmuxPaneAgentLabel(pane: TmuxSession, agent: string, homeDir: string | undefined = process.env.HOME): string | undefined {
+  if (pane.session === undefined || pane.windowIndex === undefined || pane.paneIndex === undefined) {
+    return pane.label;
+  }
+  return buildTmuxPaneLabel({
+    session: pane.session,
+    windowIndex: pane.windowIndex,
+    paneIndex: pane.paneIndex,
+    currentCommand: agent,
+    currentPath: pane.currentPath
+  }, homeDir);
+}
+
 // Agents set live titles on the pane; the window name is the fallback, numbered when the window is split.
 export function buildTmuxPaneDisplayName(pane: {
   windowName?: string;

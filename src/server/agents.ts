@@ -13,45 +13,78 @@ export const NEW_AGENT_TMUX_SESSION = "main";
 const MAX_AGENT_DIRECTORIES = 40;
 
 export type AgentDefinition = AgentDto & {
-  // Checked for existence before the agent is offered.
+  command: string;
+  // Executables checked in order; the first one present is the agent's binary.
+  candidates: string[];
+  // Run by name so the login shell can apply the owner's wrapper function.
+  byName?: boolean;
+};
+
+export type AvailableAgent = AgentDto & {
   binary: string;
   // Fixed text run by the login shell; never contains request data.
   shellCommand: string;
 };
 
-export function buildAgentDefinitions(homeDir: string = os.homedir()): AgentDefinition[] {
-  const claude = path.join(homeDir, ".local/bin/claude");
-  return [
-    { id: "opencode", label: "OpenCode", binary: "/opt/homebrew/bin/opencode", shellCommand: "/opt/homebrew/bin/opencode" },
-    { id: "pi", label: "pi", binary: "/opt/homebrew/bin/pi", shellCommand: "/opt/homebrew/bin/pi" },
-    { id: "claude", label: "Claude Code", binary: claude, shellCommand: claude },
-    // The owner's zsh `codex` function picks the personal CODEX_HOME, so call it by name.
-    { id: "codex", label: "Codex", binary: "/opt/homebrew/bin/codex", shellCommand: "codex" }
+const AGENT_COMMANDS: Array<Omit<AgentDefinition, "candidates">> = [
+  { id: "opencode", label: "OpenCode", command: "opencode" },
+  { id: "pi", label: "pi", command: "pi" },
+  { id: "claude", label: "Claude Code", command: "claude" },
+  // The owner's zsh `codex` function picks the personal CODEX_HOME, so call it by name.
+  { id: "codex", label: "Codex", command: "codex", byName: true }
+];
+
+// Common install dirs first, then the server's PATH (run.sh adds /opt/homebrew/bin under launchd).
+export function agentBinaryDirs(homeDir: string = os.homedir(), envPath: string | undefined = process.env.PATH): string[] {
+  const dirs = [
+    path.join(homeDir, ".local/bin"),
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    ...(envPath ?? "").split(path.delimiter)
   ];
+  return [...new Set(dirs.filter((dir) => path.isAbsolute(dir)))];
+}
+
+export function buildAgentDefinitions(homeDir: string = os.homedir(), dirs: string[] = agentBinaryDirs(homeDir)): AgentDefinition[] {
+  return AGENT_COMMANDS.map((agent) => ({ ...agent, candidates: dirs.map((dir) => path.join(dir, agent.command)) }));
 }
 
 export class AgentRequestError extends Error {
   readonly statusCode = 400;
 }
 
-export async function listAvailableAgents(definitions: AgentDefinition[] = buildAgentDefinitions()): Promise<AgentDefinition[]> {
-  const available = await Promise.all(definitions.map(async (definition) => {
+async function firstExecutable(candidates: string[]): Promise<string | null> {
+  for (const candidate of candidates) {
     try {
-      await access(definition.binary, fsConstants.X_OK);
-      return definition;
+      await access(candidate, fsConstants.X_OK);
+      if ((await stat(candidate)).isFile()) {
+        return candidate;
+      }
     } catch {
-      return null;
+      // Try the next install location.
     }
-  }));
-  return available.filter((definition): definition is AgentDefinition => definition !== null);
+  }
+  return null;
 }
 
-export function findAgentDefinition(agentId: unknown, definitions: AgentDefinition[]): AgentDefinition {
-  const definition = typeof agentId === "string" ? definitions.find((entry) => entry.id === agentId) : undefined;
-  if (!definition) {
+export function shellQuote(value: string): string {
+  return /^[A-Za-z0-9_./-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+export async function listAvailableAgents(definitions: AgentDefinition[] = buildAgentDefinitions()): Promise<AvailableAgent[]> {
+  const available = await Promise.all(definitions.map(async ({ id, label, command, candidates, byName }) => {
+    const binary = await firstExecutable(candidates);
+    return binary ? { id, label, binary, shellCommand: byName ? command : shellQuote(binary) } : null;
+  }));
+  return available.filter((agent): agent is AvailableAgent => agent !== null);
+}
+
+export function findAgentDefinition(agentId: unknown, agents: AvailableAgent[]): AvailableAgent {
+  const agent = typeof agentId === "string" ? agents.find((entry) => entry.id === agentId) : undefined;
+  if (!agent) {
     throw new AgentRequestError(`Unknown agent: ${typeof agentId === "string" ? agentId : String(agentId)}`);
   }
-  return definition;
+  return agent;
 }
 
 export async function resolveAgentDirectory(input: unknown, homeDir: string = os.homedir()): Promise<string> {
@@ -81,12 +114,12 @@ export function buildAgentWindowName(agentId: string, directory: string): string
 }
 
 // Multiple arguments make tmux exec the shell directly instead of via `sh -c`.
-export function buildAgentShellArgv(definition: AgentDefinition, shell: string): string[] {
+export function buildAgentShellArgv(definition: AvailableAgent, shell: string): string[] {
   return [shell, "-lic", `${definition.shellCommand}; exec ${shell} -l`];
 }
 
 export function buildNewAgentTmuxArgs(options: {
-  definition: AgentDefinition;
+  definition: AvailableAgent;
   directory: string;
   shell: string;
   sessionExists: boolean;

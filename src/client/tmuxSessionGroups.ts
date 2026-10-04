@@ -1,5 +1,5 @@
 import type { TmuxSessionDto, TmuxSessionStatusDto, TmuxSessionStatusHealth } from "../shared/api.js";
-import { tmuxPaneAgent } from "../shared/tmuxAgents.js";
+import { tmuxEntryAgent } from "../shared/tmuxAgents.js";
 
 export const TMUX_SESSION_GROUPS_STORAGE_KEY = "agent-tmux-web.session-groups";
 export const MAX_STORED_TMUX_SESSION_GROUPS = 64;
@@ -36,7 +36,7 @@ export function tmuxPaneStatus(entry: TmuxSessionDto): TmuxSessionStatusDto {
 
 // Agent panes only, unless showing all; the selected pane stays until the owner navigates away.
 export function filterTmuxAgentPanes(entries: TmuxSessionDto[], showAll: boolean, selected: string): TmuxSessionDto[] {
-  return showAll ? entries : entries.filter((entry) => entry.name === selected || tmuxPaneAgent(entry.currentCommand) !== null);
+  return showAll ? entries : entries.filter((entry) => entry.name === selected || tmuxEntryAgent(entry) !== null);
 }
 
 function lastInputAtMs(panes: TmuxSessionDto[]): number {

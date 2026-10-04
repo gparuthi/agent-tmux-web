@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -19,7 +19,9 @@ import {
   mergeAgentDirectories,
   resolveAgentDirectory,
   startAgentInTmux,
-  type AgentDefinition
+  agentBinaryDirs,
+  shellQuote,
+  type AvailableAgent
 } from "../agents.js";
 
 const execFileAsync = promisify(execFile);
@@ -42,14 +44,53 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-const pi: AgentDefinition = { id: "pi", label: "pi", binary: "/opt/homebrew/bin/pi", shellCommand: "/opt/homebrew/bin/pi" };
+const pi: AvailableAgent = { id: "pi", label: "pi", binary: "/Users/me/.local/bin/pi", shellCommand: "/Users/me/.local/bin/pi" };
 
 describe("agent allowlist", () => {
-  it("offers only the four known agents, with fixed commands", () => {
-    const definitions = buildAgentDefinitions("/Users/me");
+  it("offers only the four known agents, looked up by fixed name in the install dirs", () => {
+    const definitions = buildAgentDefinitions("/Users/me", ["/Users/me/.local/bin", "/opt/homebrew/bin"]);
     expect(definitions.map((entry) => entry.id)).toEqual(["opencode", "pi", "claude", "codex"]);
-    expect(definitions.find((entry) => entry.id === "claude")?.shellCommand).toBe("/Users/me/.local/bin/claude");
-    expect(definitions.find((entry) => entry.id === "codex")?.shellCommand).toBe("codex");
+    expect(definitions.find((entry) => entry.id === "pi")?.candidates).toEqual(["/Users/me/.local/bin/pi", "/opt/homebrew/bin/pi"]);
+    expect(definitions.filter((entry) => entry.byName).map((entry) => entry.id)).toEqual(["codex"]);
+  });
+
+  it("searches ~/.local/bin, Homebrew and /usr/local before the server PATH, once each", () => {
+    expect(agentBinaryDirs("/Users/me", "/Users/me/.gp/tools/atw/bin:/opt/homebrew/bin:relative:/usr/bin")).toEqual([
+      "/Users/me/.local/bin",
+      "/opt/homebrew/bin",
+      "/usr/local/bin",
+      "/Users/me/.gp/tools/atw/bin",
+      "/usr/bin"
+    ]);
+    expect(agentBinaryDirs("/Users/me", "")).toEqual(["/Users/me/.local/bin", "/opt/homebrew/bin", "/usr/local/bin"]);
+  });
+
+  it("launches the first install found, by path, except codex which runs by name", async () => {
+    const home = await makeTempDir();
+    const local = path.join(home, ".local/bin");
+    const brew = path.join(home, "brew");
+    await mkdir(local, { recursive: true });
+    await mkdir(brew);
+    // pi installs as a symlink in ~/.local/bin pointing at its managed launcher.
+    const piLauncher = await makeExecutable(path.join(home, "pi-launcher"));
+    await symlink(piLauncher, path.join(local, "pi"));
+    await makeExecutable(path.join(brew, "pi"));
+    await makeExecutable(path.join(brew, "codex"));
+    await makeExecutable(path.join(brew, "claude"));
+    // A directory with an agent's name is not an install.
+    await mkdir(path.join(local, "claude"));
+
+    const available = await listAvailableAgents(buildAgentDefinitions(home, [local, brew]));
+    expect(available).toEqual([
+      { id: "pi", label: "pi", binary: path.join(local, "pi"), shellCommand: path.join(local, "pi") },
+      { id: "claude", label: "Claude Code", binary: path.join(brew, "claude"), shellCommand: path.join(brew, "claude") },
+      { id: "codex", label: "Codex", binary: path.join(brew, "codex"), shellCommand: "codex" }
+    ]);
+  });
+
+  it("quotes install paths that need it for the login shell", () => {
+    expect(shellQuote("/Users/me/.local/bin/pi")).toBe("/Users/me/.local/bin/pi");
+    expect(shellQuote("/Users/me/My Tools/it's/pi")).toBe("'/Users/me/My Tools/it'\\''s/pi'");
   });
 
   it("rejects agents that are not on the allowlist", () => {
@@ -70,11 +111,11 @@ describe("agent allowlist", () => {
     const notExecutable = path.join(dir, "plain");
     await writeFile(notExecutable, "");
     const available = await listAvailableAgents([
-      { id: "a", label: "A", binary: present, shellCommand: present },
-      { id: "b", label: "B", binary: path.join(dir, "missing"), shellCommand: "missing" },
-      { id: "c", label: "C", binary: notExecutable, shellCommand: notExecutable }
+      { id: "a", label: "A", command: "present", candidates: [path.join(dir, "missing"), present] },
+      { id: "b", label: "B", command: "missing", candidates: [path.join(dir, "missing")] },
+      { id: "c", label: "C", command: "plain", candidates: [notExecutable] }
     ]);
-    expect(available.map((entry) => entry.id)).toEqual(["a"]);
+    expect(available).toEqual([{ id: "a", label: "A", binary: present, shellCommand: present }]);
   });
 });
 
@@ -105,7 +146,7 @@ describe("agent tmux arguments", () => {
     expect(buildNewAgentTmuxArgs({ definition: pi, directory: "/Users/me/work/atw", shell: "/bin/zsh", sessionExists: true })).toEqual([
       "new-window", "-t", "=main:", "-P", "-F", "#{pane_id}",
       "-c", "/Users/me/work/atw", "-n", "pi:atw",
-      "/bin/zsh", "-lic", "/opt/homebrew/bin/pi; exec /bin/zsh -l"
+      "/bin/zsh", "-lic", "/Users/me/.local/bin/pi; exec /bin/zsh -l"
     ]);
   });
 
@@ -209,7 +250,7 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
     );
     const project = path.join(workDir, "my project");
     await mkdir(project);
-    const definitions: AgentDefinition[] = [{ id: "pi", label: "pi", binary, shellCommand: binary }];
+    const definitions = [{ id: "pi", label: "pi", command: "fake-agent", candidates: [binary] }];
 
     const first = await startAgentInTmux("pi", project, { definitions, shell });
     const second = await startAgentInTmux("pi", workDir, { definitions, shell });

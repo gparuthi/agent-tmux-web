@@ -110,12 +110,29 @@ describe("responsive mobile CSS", () => {
     expect(app).not.toContain("applyDestroyedSessionReplacement");
   });
 
-  it("uses current-operation guards for capture and CLI launch responses", () => {
+  it("leaves starting agents to New agent, with no New Session or CLI Launcher rail sections", () => {
+    const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
+    const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
+
+    expect(app).toContain("setNewAgentOpen(true)");
+    expect(app).not.toContain("New Session");
+    expect(app).not.toContain("CLI Launcher");
+    expect(app).not.toContain("Create tmux session");
+    expect(app).not.toContain("/api/tmux/create");
+    expect(app).not.toContain("/api/tmux/open-tool");
+    expect(app).not.toContain("/api/tmux/tools");
+    expect(app).not.toContain("Permission Mode");
+    expect(app).not.toContain("Output Mode");
+    expect(app).not.toContain("tmuxToolPreferences");
+    expect(css).not.toContain(".tmux-tool-");
+    expect(css).not.toContain(".tmux-actions");
+  });
+
+  it("uses current-operation guards for capture responses", () => {
     const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
 
     expect(app).toContain("shouldApplyTmuxCapture({");
     expect(app).toContain("shouldApplyTmuxPrefetch({");
-    expect(app).toContain("shouldApplyTmuxToolLaunch({");
     expect(app).not.toContain("tmuxHarnessHistorySessionRef");
     expect(app).not.toContain("navigateTmuxHarnessHistory");
     expect(app).not.toContain("applyCachedTmuxSidebar");
@@ -139,15 +156,12 @@ describe("responsive mobile CSS", () => {
     expect(app).not.toContain("const TMUX_CAPTURE_HISTORY_LINES = 1000");
   });
 
-  it("invalidates delayed session and launcher work when navigation changes", () => {
+  it("invalidates delayed session work when navigation changes", () => {
     const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
     const sessionStart = app.indexOf("function selectTmuxSession");
     const sessionEnd = app.indexOf("function tmuxStatusForSession", sessionStart);
-    const viewStart = app.indexOf("function selectTmuxViewMode");
-    const viewEnd = app.indexOf("function selectColorTheme", viewStart);
 
     expect(app.slice(sessionStart, sessionEnd)).toContain("clearTmuxFollowTimers(tmuxFollowTimersRef)");
-    expect(app.slice(viewStart, viewEnd)).toContain("tmuxToolLaunchRequestIdRef.current += 1");
   });
 
   it("centralizes capture ownership and cancels manual sync safely", () => {
@@ -236,8 +250,6 @@ describe("responsive mobile CSS", () => {
 
     expect(app).toContain('className="tmux-app-toolbar"');
     expect(app).toContain('className="tmux-rail-section-title">Sessions');
-    expect(app).toContain('className="tmux-rail-section-title">New Session');
-    expect(app).toContain('className="tmux-rail-section-title">CLI Launcher');
     expect(app).toContain('className="tmux-connection-status"');
     expect(css).toContain(".tmux-app-toolbar");
     expect(css).toContain("grid-template-columns: 260px minmax(0, 1fr)");
@@ -285,16 +297,6 @@ describe("responsive mobile CSS", () => {
     expect(css.match(new RegExp(workspaceFlexRule.source, "g"))).toHaveLength(1);
   });
 
-  it("labels and groups launcher modes by interface permissions and options", () => {
-    const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
-
-    expect(app).toContain('label: "UI Mode"');
-    expect(app).toContain('label: "Permission Mode"');
-    expect(app).toContain('label: "Options"');
-    expect(app).toContain('role="group"');
-    expect(app).toContain("aria-labelledby");
-    expect(app).not.toContain("Output Mode");
-  });
 });
 
 describe("current user guidance", () => {
@@ -560,7 +562,7 @@ describe("color theme CSS", () => {
   it("uses dark workbench surfaces for tmux utility controls", () => {
     const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
     const utilityRule = css.match(
-      /\.tmux-compact-bar button,\n\.tmux-terminal-toolbar button,\n\.tmux-view-menu summary,\n\.tmux-actions button,\n\.tmux-tool-actions button,\n\.tmux-send button,\n\.tmux-soft-keys button \{([^}]*)\}/
+      /\.tmux-compact-bar button,\n\.tmux-terminal-toolbar button,\n\.tmux-view-menu summary,\n\.tmux-send button,\n\.tmux-soft-keys button \{([^}]*)\}/
     )?.[1] ?? "";
 
     expect(utilityRule).toContain("background: var(--surface-control)");

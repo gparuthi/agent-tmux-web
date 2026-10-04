@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import type { TmuxSessionDto } from "../../shared/api.js";
 import {
   defaultTmuxPaneSelection,
-  findTmuxPaneForSession,
   formatTmuxStatusText,
   orderTmuxSessionsByPins,
   parsePinnedTmuxSessionNames,
@@ -85,12 +84,6 @@ describe("tmux pane entries", () => {
     expect(defaultTmuxPaneSelection(panes)).toBe("%20");
     expect(defaultTmuxPaneSelection(panes.slice(0, 2))).toBe("%1");
     expect(defaultTmuxPaneSelection([])).toBe("");
-  });
-
-  it("finds the pane to select after creating a session", () => {
-    expect(findTmuxPaneForSession(panes, "main")?.name).toBe("%20");
-    expect(findTmuxPaneForSession(panes, "gp")?.name).toBe("%1");
-    expect(findTmuxPaneForSession(panes, "missing")).toBeUndefined();
   });
 
   it("replaces pane ids in status text with readable pane names", () => {
