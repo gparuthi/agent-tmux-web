@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type { TmuxSessionDto } from "../../shared/api.js";
 import {
-  defaultTmuxPaneSelection,
   formatTmuxStatusText,
   orderTmuxSessionsByPins,
   parsePinnedTmuxSessionNames,
@@ -78,12 +77,6 @@ describe("tmux pane entries", () => {
 
   it("emits a session header at the start of each run of panes", () => {
     expect(panes.map((_, index) => tmuxSessionGroupHeader(panes, index))).toEqual(["gp", null, "main", null]);
-  });
-
-  it("picks the active pane of an attached session by default", () => {
-    expect(defaultTmuxPaneSelection(panes)).toBe("%20");
-    expect(defaultTmuxPaneSelection(panes.slice(0, 2))).toBe("%1");
-    expect(defaultTmuxPaneSelection([])).toBe("");
   });
 
   it("replaces pane ids in status text with readable pane names", () => {

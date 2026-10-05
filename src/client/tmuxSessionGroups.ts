@@ -94,27 +94,56 @@ export type TmuxRailView = {
   showAll: boolean;
 };
 
+const isUnderscoreTmuxSession = (entry: TmuxSessionDto) => (entry.session ?? "").startsWith("_");
+
+// The rows a selection may fall back to: the rail's own rows in display order, minus "_" sessions
+// (_hidden) and snoozed panes, whether or not the owner expanded them.
+function fallbackTmuxRailPanes(entries: TmuxSessionDto[], view: TmuxRailView): TmuxSessionDto[] {
+  return visibleTmuxRailPanes(filterTmuxAgentPanes(entries, view.showAll, ""), view.pinnedNames, view.preferences)
+    .filter((entry) => !isUnderscoreTmuxSession(entry) && !entry.snoozedUntilMs);
+}
+
 // The pane to open on load: the last one this browser selected if the rail still shows it, else the
 // rail's first row. "_" sessions (_hidden) only count when the owner expanded them; never by default.
 export function initialTmuxPaneSelection(entries: TmuxSessionDto[], stored: string | null, view: TmuxRailView): string {
   const visible = visibleTmuxRailPanes(filterTmuxAgentPanes(entries, view.showAll, ""), view.pinnedNames, view.preferences);
-  const underscored = (entry: TmuxSessionDto) => (entry.session ?? "").startsWith("_");
   const expanded = (session: string | undefined) => view.preferences.some(([name, collapsed]) => name === session && !collapsed);
   const restored = stored ? visible.find((entry) => entry.name === stored) : undefined;
-  if (restored && (!underscored(restored) || expanded(restored.session))) {
+  if (restored && (!isUnderscoreTmuxSession(restored) || expanded(restored.session))) {
     return restored.name;
   }
-  return visible.find((entry) => !underscored(entry))?.name ?? "";
+  return fallbackTmuxPaneSelection(entries, view);
 }
 
-// After a pane leaves its place (e.g. its window was snoozed): the next rail row that stayed put,
-// else the one before it, else the first visible row that isn't snoozed.
-export function nextTmuxRailPaneAfter(before: TmuxSessionDto[], removed: string, after: TmuxSessionDto[]): string {
-  const sessions = new Map(after.map((entry) => [entry.name, entry.session]));
+// The rail's first row a selection may land on, or nothing.
+export function fallbackTmuxPaneSelection(entries: TmuxSessionDto[], view: TmuxRailView): string {
+  return fallbackTmuxRailPanes(entries, view)[0]?.name ?? "";
+}
+
+// After the selected pane left (closed, or its window snoozed): the next rail row of before that the
+// rail still shows, else the one before it, else the rail's first row. Never a "_" session or a
+// snoozed pane, and only rows the agent filter and collapsed groups leave visible.
+export function nextTmuxRailPaneAfter(before: TmuxSessionDto[], removed: string, entries: TmuxSessionDto[], view: TmuxRailView): string {
+  const eligible = fallbackTmuxRailPanes(entries, view).filter((entry) => entry.name !== removed);
+  const names = new Set(eligible.map((entry) => entry.name));
   const index = before.findIndex((entry) => entry.name === removed);
   const candidates = index < 0 ? [] : [...before.slice(index + 1), ...before.slice(0, index).reverse()];
-  const next = candidates.find((entry) => sessions.has(entry.name) && sessions.get(entry.name) === entry.session && !entry.snoozedUntilMs);
-  return next?.name ?? after.find((entry) => entry.name !== removed && !entry.snoozedUntilMs)?.name ?? "";
+  return candidates.find((entry) => names.has(entry.name))?.name ?? eligible[0]?.name ?? "";
+}
+
+// A list refresh that dropped the selected pane (closed from a terminal or a tpal action) picks the
+// pane after it; null keeps the selection, including one the previous list never had (a deep link).
+export function tmuxSelectionAfterListChange(
+  previous: TmuxSessionDto[],
+  entries: TmuxSessionDto[],
+  selected: string,
+  view: TmuxRailView
+): string | null {
+  if (!selected || entries.some((entry) => entry.name === selected) || !previous.some((entry) => entry.name === selected)) {
+    return null;
+  }
+  const before = visibleTmuxRailPanes(filterTmuxAgentPanes(previous, view.showAll, selected), view.pinnedNames, view.preferences);
+  return nextTmuxRailPaneAfter(before, selected, entries, view);
 }
 
 // The most attention-worthy status wins: blocked, working, done, idle, then unknown; ties keep pane order.

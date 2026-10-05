@@ -91,7 +91,6 @@ import {
 } from "./tmuxOperationGuards.js";
 import { buildTmuxTransitionNotification } from "./tmuxNotifications.js";
 import {
-  defaultTmuxPaneSelection,
   findTmuxPane,
   formatTmuxStatusText,
   normalizeRequestedTmuxSession,
@@ -115,9 +114,11 @@ import {
   SHOW_ALL_TMUX_PANES_STORAGE_KEY,
   TMUX_PANE_VIEWS_STORAGE_KEY,
   TMUX_SESSION_GROUPS_STORAGE_KEY,
+  tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
   visibleTmuxRailPanes,
   type TmuxPaneViews,
+  type TmuxRailView,
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
 import { TmuxSessionList } from "./TmuxSessionList.js";
@@ -446,6 +447,10 @@ export function App() {
     [selectedTmux, showAllTmuxPanes, tmuxSessions]
   );
   const hiddenTmuxPaneCount = tmuxSessions.length - railTmuxPanes.length;
+  const tmuxRailView = useMemo<TmuxRailView>(
+    () => ({ pinnedNames: pinnedTmuxSessionNames, preferences: tmuxSessionGroupPreferences, showAll: showAllTmuxPanes }),
+    [pinnedTmuxSessionNames, showAllTmuxPanes, tmuxSessionGroupPreferences]
+  );
   const selectedTmuxPinned = Boolean(selectedTmux) && pinnedTmuxSessionNames.includes(selectedTmux);
   // tmux-hide-window runs against this host's tmux, so container (shim-prefixed) panes can't snooze.
   const windowSnoozeAvailable = !demoMode && Boolean(status?.windowSnooze);
@@ -689,6 +694,17 @@ export function App() {
     loadStatus().catch(reportError(setError));
     loadTmuxSessions().catch(reportError(setError));
   }, [loadStatus, loadTmuxSessions]);
+
+  // A refresh that dropped the selected pane (killed in a terminal or by a tpal action) moves on by the rail's rule.
+  const previousTmuxSessionsRef = useRef(tmuxSessions);
+  useEffect(() => {
+    const previous = previousTmuxSessionsRef.current;
+    previousTmuxSessionsRef.current = tmuxSessions;
+    const next = tmuxSelectionAfterListChange(previous, tmuxSessions, selectedTmuxRef.current, tmuxRailView);
+    if (next !== null) {
+      selectTmuxSessionOrNone(next);
+    }
+  }, [tmuxSessions]);
 
   useEffect(() => {
     if (demoMode) {
@@ -1823,6 +1839,7 @@ export function App() {
       return;
     }
     closeTmuxSettingsMenu();
+    const railBefore = visibleTmuxRailPanes(railTmuxPanes, pinnedTmuxSessionNames, tmuxSessionGroupPreferences);
     const remaining = demoMode
       ? tmuxSessions.filter((pane) => pane.name !== target)
       : (await api<{ data: TmuxSessionDto[] }>("/api/tmux/close-pane", {
@@ -1833,8 +1850,11 @@ export function App() {
     if (selectedTmuxRef.current !== target) {
       return;
     }
-    // Prefer another agent pane so the rail selection stays inside the default filter.
-    const next = defaultTmuxPaneSelection(filterTmuxAgentPanes(remaining, showAllTmuxPanes, "")) || defaultTmuxPaneSelection(remaining);
+    selectTmuxSessionOrNone(nextTmuxRailPaneAfter(railBefore, target, remaining, tmuxRailView));
+  }
+
+  // Fallback picks (close, snooze, a pane gone on refresh) may find nothing to show.
+  function selectTmuxSessionOrNone(next: string) {
     if (next) {
       selectTmuxSession(next);
       return;
@@ -1865,11 +1885,7 @@ export function App() {
       return;
     }
     // The window moved to _hidden, so its rows left their group; carry on with the next row.
-    const railAfter = visibleTmuxRailPanes(filterTmuxAgentPanes(remaining, showAllTmuxPanes, ""), pinnedTmuxSessionNames, tmuxSessionGroupPreferences);
-    const next = nextTmuxRailPaneAfter(railBefore, target, railAfter);
-    if (next) {
-      selectTmuxSession(next);
-    }
+    selectTmuxSessionOrNone(nextTmuxRailPaneAfter(railBefore, target, remaining, tmuxRailView));
   }
 
   async function wakeTmuxWindow(target: string) {

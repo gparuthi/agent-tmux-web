@@ -4,6 +4,7 @@ import type { TmuxSessionDto, TmuxSessionStatusDto } from "../../shared/api.js";
 import {
   aggregateTmuxSessionStatus,
   defaultTmuxSessionGroupCollapsed,
+  fallbackTmuxPaneSelection,
   filterTmuxAgentPanes,
   groupTmuxPanes,
   hasUnseenTmuxActivity,
@@ -18,8 +19,10 @@ import {
   setTmuxSessionGroupCollapsed,
   tmuxPaneGroupDetail,
   tmuxPaneStatus,
+  tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
-  visibleTmuxRailPanes
+  visibleTmuxRailPanes,
+  type TmuxRailView
 } from "../tmuxSessionGroups.js";
 
 const WORKING: TmuxSessionStatusDto = { kind: "working", title: "Working" };
@@ -256,22 +259,86 @@ describe("rail order and the pane after a snooze", () => {
     expect(visibleTmuxRailPanes(rail, [], [["_hidden", false], ["main", true]]).map((entry) => entry.name)).toEqual(["%4", "%3", "%5"]);
   });
 
+  const all: TmuxRailView = { pinnedNames: [], preferences: [], showAll: true };
+
   it("selects the next row that stayed in place, else the previous one", () => {
     const before = visibleTmuxRailPanes(rail, [], []);
     // %1's window (with %2) moved to _hidden.
-    const after = visibleTmuxRailPanes([
+    const after = [
       pane("%1", "_hidden", { snoozedUntilMs: 1 }),
       pane("%2", "_hidden", { snoozedUntilMs: 1 }),
       pane("%3", "gp", { lastInputAtMs: 100 }),
       pane("%5", "gp", { lastInputAtMs: 50 })
-    ], [], []);
-    expect(nextTmuxRailPaneAfter(before, "%1", after)).toBe("%3");
-    expect(nextTmuxRailPaneAfter(before, "%5", [pane("%1", "main"), pane("%2", "main"), pane("%3", "gp")])).toBe("%3");
+    ];
+    expect(nextTmuxRailPaneAfter(before, "%1", after, all)).toBe("%3");
+    expect(nextTmuxRailPaneAfter(before, "%5", [pane("%1", "main"), pane("%2", "main"), pane("%3", "gp")], all)).toBe("%3");
   });
 
   it("falls back to the first unsnoozed row, or nothing", () => {
-    expect(nextTmuxRailPaneAfter([], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 }), pane("%9", "gp")])).toBe("%9");
-    expect(nextTmuxRailPaneAfter([pane("%1", "main")], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 })])).toBe("");
+    expect(nextTmuxRailPaneAfter([], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 }), pane("%9", "gp")], all)).toBe("%9");
+    expect(nextTmuxRailPaneAfter([pane("%1", "main")], "%1", [pane("%1", "_hidden", { snoozedUntilMs: 1 })], all)).toBe("");
+  });
+});
+
+describe("the pane after a close, snooze or vanished pane", () => {
+  const agent = (name: string, session: string, lastInputAtMs: number, extra: Partial<TmuxSessionDto> = {}) =>
+    pane(name, session, { currentCommand: "claude", lastInputAtMs, ...extra });
+  // Rail order (agents only): main %3 %4, then gp %1; zsh %2 is filtered out.
+  const entries = [
+    agent("%30", "_hidden", 900, { attached: true, windowActive: true, paneActive: true }),
+    agent("%31", "_ctr_bootstrap", 950),
+    agent("%1", "gp", 100),
+    pane("%2", "gp", { currentCommand: "zsh", lastInputAtMs: 800 }),
+    agent("%3", "main", 500),
+    agent("%4", "main", 50)
+  ];
+  const view: TmuxRailView = { pinnedNames: [], preferences: [], showAll: false };
+  const rail = (list: TmuxSessionDto[], selected: string, v = view) =>
+    visibleTmuxRailPanes(filterTmuxAgentPanes(list, v.showAll, selected), v.pinnedNames, v.preferences);
+  const without = (name: string) => entries.filter((entry) => entry.name !== name);
+
+  it("takes the next rail row, else the previous one, never raw tmux order", () => {
+    expect(nextTmuxRailPaneAfter(rail(entries, "%3"), "%3", without("%3"), view)).toBe("%4");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%1"), "%1", without("%1"), view)).toBe("%4");
+  });
+
+  it("skips non-agent panes unless showing all", () => {
+    const before = rail(entries, "%4");
+    expect(nextTmuxRailPaneAfter(before, "%4", without("%4"), view)).toBe("%1");
+    const allView = { ...view, showAll: true };
+    // Show all: zsh %2's input lifts gp above main, so it heads the rail.
+    expect(fallbackTmuxPaneSelection(entries, view)).toBe("%3");
+    expect(fallbackTmuxPaneSelection(entries, allView)).toBe("%2");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%3", allView), "%3", without("%3"), allView)).toBe("%4");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%4", allView), "%4", without("%4"), allView)).toBe("%3");
+  });
+
+  it("never lands in _hidden or another _ session, even when the owner expanded it", () => {
+    const expanded: TmuxRailView = { ...view, preferences: [["_hidden", false], ["_ctr_bootstrap", false]] };
+    const before = rail(entries, "%1", expanded);
+    expect(before.map((entry) => entry.name)).toContain("%30");
+    expect(nextTmuxRailPaneAfter(before, "%1", without("%1"), expanded)).toBe("%4");
+    const onlyHidden = [entries[0]!, entries[1]!, agent("%9", "gp", 1)];
+    expect(nextTmuxRailPaneAfter(rail(onlyHidden, "%9", expanded), "%9", onlyHidden.slice(0, 2), expanded)).toBe("");
+    expect(fallbackTmuxPaneSelection(onlyHidden.slice(0, 2), expanded)).toBe("");
+  });
+
+  it("skips collapsed groups and honours pins", () => {
+    const collapsed: TmuxRailView = { ...view, preferences: [["main", true]] };
+    expect(nextTmuxRailPaneAfter(rail(entries, "%1", view), "%1", without("%1"), collapsed)).toBe("");
+    const pinned = { ...view, pinnedNames: ["%4"] };
+    expect(nextTmuxRailPaneAfter(rail(entries, "%3", pinned), "%3", without("%3"), pinned)).toBe("%1");
+    expect(fallbackTmuxPaneSelection(without("%3"), pinned)).toBe("%4");
+  });
+
+  it("moves on when a refresh drops the selected pane, and only then", () => {
+    expect(tmuxSelectionAfterListChange(entries, without("%3"), "%3", view)).toBe("%4");
+    expect(tmuxSelectionAfterListChange(entries, entries, "%3", view)).toBeNull();
+    // A deep-linked pane the previous list never had keeps its selection.
+    expect(tmuxSelectionAfterListChange(without("%7"), without("%7"), "%7", view)).toBeNull();
+    expect(tmuxSelectionAfterListChange([], entries, "%3", view)).toBeNull();
+    expect(tmuxSelectionAfterListChange(entries, without("%3"), "", view)).toBeNull();
+    expect(tmuxSelectionAfterListChange(entries, [entries[0]!], "%3", view)).toBe("");
   });
 });
 
