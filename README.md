@@ -286,7 +286,8 @@ Common variables:
 - `ATW_HIDE_WINDOW_BIN`: path to `tmux-hide-window`, which backs the top bar's
   Snooze window button and the rail's Wake action. Defaults to
   `~/.gp/tools/tmux-hide-window/tmux-hide-window`; empty, missing or
-  non-executable hides the button.
+  non-executable hides the button. Wake runs `wake-window`, which brings back
+  only that window; builds without it fall back to `reveal`.
 - `ATW_TPAL_BIN`: path to `tpal`, whose `list --json` and `run` back the
   overflow menu's pane Actions. Defaults to `~/.gp/tools/tpal/tpal`; empty,
   missing or non-executable hides the entry.

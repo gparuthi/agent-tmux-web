@@ -47,8 +47,20 @@ export function buildHideWindowSnoozeArgs(windowId: string, duration: string): s
   return ["snooze", windowId, duration];
 }
 
+// Wakes just this window and clears its snooze marks; reveal would peek its whole home session.
+export function buildHideWindowWakeArgs(windowId: string): string[] {
+  return ["wake-window", windowId];
+}
+
+// Builds of tmux-hide-window before wake-window only know reveal.
 export function buildHideWindowRevealArgs(windowId: string): string[] {
   return ["reveal", windowId];
+}
+
+// The tool exits 2 with its usage line for a verb it doesn't know.
+function isUnknownVerbFailure(error: unknown): boolean {
+  const record = error && typeof error === "object" ? error as { code?: unknown; stderr?: unknown } : {};
+  return record.code === 2 && String(record.stderr ?? "").includes("usage:");
 }
 
 export type TmuxWindowPlacement = { windowId: string; session: string };
@@ -97,7 +109,7 @@ export function createWindowSnoozeRouter({
 }: WindowSnoozeRouterOptions): Router {
   const router = Router();
 
-  async function runHideWindow(args: string[]): Promise<void> {
+  async function runHideWindow(args: string[], fallbackArgs?: string[]): Promise<void> {
     const bin = await hideWindowBin();
     if (!bin) {
       throw new WindowSnoozeError("Window snooze is not available: tmux-hide-window is not installed", 404);
@@ -105,6 +117,9 @@ export function createWindowSnoozeRouter({
     try {
       await execFileAsync(bin, args, { timeout: HIDE_WINDOW_TIMEOUT_MS });
     } catch (error) {
+      if (fallbackArgs && isUnknownVerbFailure(error)) {
+        return runHideWindow(fallbackArgs);
+      }
       const stderr = error && typeof error === "object" && "stderr" in error ? String(error.stderr).trim() : "";
       throw new WindowSnoozeError(`tmux-hide-window ${args[0]} failed${stderr ? `: ${stderr}` : ""}`, 502);
     }
@@ -130,7 +145,7 @@ export function createWindowSnoozeRouter({
     if (session !== HIDDEN_TMUX_SESSION) {
       throw new TmuxRequestError("That window is not snoozed");
     }
-    await runHideWindow(buildHideWindowRevealArgs(windowId));
+    await runHideWindow(buildHideWindowWakeArgs(windowId), buildHideWindowRevealArgs(windowId));
     if ((await readWindowPlacement(windowId)).session === HIDDEN_TMUX_SESSION) {
       throw new WindowSnoozeError("The window stayed hidden: its home session is gone", 409);
     }

@@ -11,6 +11,7 @@ import type { TmuxSession } from "../tmux.js";
 import {
   buildHideWindowRevealArgs,
   buildHideWindowSnoozeArgs,
+  buildHideWindowWakeArgs,
   buildTmuxWindowPlacementArgs,
   createWindowSnoozeRouter,
   findHideWindowBin,
@@ -57,6 +58,7 @@ describe("window snooze helpers", () => {
 
   it("builds argv without a client flag or a shell", () => {
     expect(buildHideWindowSnoozeArgs("@7", "3h")).toEqual(["snooze", "@7", "3h"]);
+    expect(buildHideWindowWakeArgs("@7")).toEqual(["wake-window", "@7"]);
     expect(buildHideWindowRevealArgs("@7")).toEqual(["reveal", "@7"]);
     expect(buildTmuxWindowPlacementArgs("%12")).toEqual(["display-message", "-p", "-t", "%12", "#{window_id}\t#{session_name}"]);
   });
@@ -89,8 +91,9 @@ describe("window snooze endpoints", () => {
     dir = await mkdtemp(path.join(tmpdir(), "atw-snooze-"));
     argvFile = path.join(dir, "argv");
     bin = path.join(dir, "tmux-hide-window");
-    // Records argv one per line; a "fail" file next to it makes it exit 1 like the real tool.
-    await writeFile(bin, `#!/bin/sh\nprintf '%s\\n' "$@" > '${argvFile}'\nif [ -f '${dir}/fail' ]; then echo 'hide-window: boom' >&2; exit 1; fi\n`);
+    // Records argv one per line; a "fail" file next to it makes it exit 1 like the real tool, an "old"
+    // file makes it reject wake-window with its usage line and exit 2 like builds before that verb.
+    await writeFile(bin, `#!/bin/sh\nif [ -f '${dir}/old' ] && [ "$1" = wake-window ]; then echo 'usage: tmux-hide-window [-c client] hide|toggle|reveal|snooze' >&2; exit 2; fi\nprintf '%s\\n' "$@" > '${argvFile}'\nif [ -f '${dir}/fail' ]; then echo 'hide-window: boom' >&2; exit 1; fi\n`);
     await chmod(bin, 0o755);
     placements = new Map([["%12", { windowId: "@7", session: "main" }], ["%30", { windowId: "@9", session: "_hidden" }]]);
     sessionAfterRun = "_hidden";
@@ -183,11 +186,26 @@ describe("window snooze endpoints", () => {
     expect(String(result.json.error)).toContain("hide-window: boom");
   });
 
-  it("wakes a snoozed window with argv [reveal, @N]", async () => {
+  it("wakes just the snoozed window with argv [wake-window, @N]", async () => {
     sessionAfterRun = "main";
     const result = await post("/api/tmux/wake-window", { target: "%30" });
     expect(result.status).toBe(200);
+    expect(await ranArgv()).toEqual(["wake-window", "@9"]);
+  });
+
+  it("falls back to reveal on a tmux-hide-window that predates wake-window", async () => {
+    sessionAfterRun = "main";
+    await writeFile(path.join(dir, "old"), "");
+    const result = await post("/api/tmux/wake-window", { target: "%30" });
+    expect(result.status).toBe(200);
     expect(await ranArgv()).toEqual(["reveal", "@9"]);
+  });
+
+  it("does not retry a wake-window that failed for another reason", async () => {
+    await writeFile(path.join(dir, "fail"), "");
+    const result = await post("/api/tmux/wake-window", { target: "%30" });
+    expect(result.status).toBe(502);
+    expect(await ranArgv()).toEqual(["wake-window", "@9"]);
   });
 
   it("refuses to wake a window that is not parked", async () => {
