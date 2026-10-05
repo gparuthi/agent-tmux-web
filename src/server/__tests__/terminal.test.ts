@@ -1,3 +1,6 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,13 +10,6 @@ import {
   buildScriptSpawn,
   buildTmuxAttachShellCommand,
   buildTmuxGroupedAttachShellCommand,
-  buildTmuxCaptureSizeFromClientDimensions,
-  buildTmuxDisplayWindowSizeArgs,
-  buildTmuxRestoreManualSizeArgs,
-  buildTmuxRestoreWindowStateCommandSequence,
-  buildTmuxSetWindowSizeOptionArgs,
-  buildTmuxShowWindowSizeOptionArgs,
-  isSameTerminalSize,
   isTmuxRawSessionName,
   normalizeTerminalSize
 } from "../terminal.js";
@@ -40,12 +36,10 @@ describe("browser tmux terminal helpers", () => {
     ]);
   });
 
-  it("lets browser raw terminals drive tmux size even when another client is attached", () => {
+  it("lets browser raw terminals size tmux as a normal client even when another client is attached", () => {
     const policy = buildBrowserRawTerminalPolicy({ hasAttachedClients: true });
 
-    expect(policy.attachOptions).toEqual({});
-    expect(policy.resizeTmuxWindowOnAttach).toBe(true);
-    expect(policy.resizeTmuxWindow).toBe(true);
+    expect(policy).toEqual({ attachOptions: {} });
     expect(buildScriptArgsForTmuxAttach("codex-ui", policy.attachOptions, undefined, "linux")).toEqual([
       "-qfec",
       "tmux attach-session -t codex-ui",
@@ -75,9 +69,7 @@ describe("browser tmux terminal helpers", () => {
   it("keeps the browser off windows that another client is viewing", () => {
     const policy = buildBrowserRawTerminalPolicy({ hasAttachedClients: true, windowViewedByOtherClients: true });
 
-    expect(policy.attachOptions).toEqual({ ignoreSize: true });
-    expect(policy.resizeTmuxWindowOnAttach).toBe(false);
-    expect(policy.resizeTmuxWindow).toBe(false);
+    expect(policy).toEqual({ attachOptions: { ignoreSize: true } });
   });
 
   it("attaches raw terminals through a grouped session focused on one pane", () => {
@@ -129,59 +121,16 @@ describe("browser tmux terminal helpers", () => {
     expect(normalizeTerminalSize(132, 36)).toEqual({ cols: 132, rows: 36 });
   });
 
-  it("detects unchanged terminal dimensions", () => {
-    expect(isSameTerminalSize({ cols: 132, rows: 36 }, { cols: 132, rows: 36 })).toBe(true);
-    expect(isSameTerminalSize({ cols: 132, rows: 36 }, { cols: 133, rows: 36 })).toBe(false);
-    expect(isSameTerminalSize({ cols: 132, rows: 36 }, { cols: 132, rows: 37 })).toBe(false);
-  });
+  it("never resizes tmux windows from raw attaches or captures", () => {
+    const serverDir = join(process.cwd(), "src/server");
+    const index = readFileSync(join(serverDir, "index.ts"), "utf8");
+    const attach = buildTmuxGroupedAttachShellCommand({ baseSession: "main", rawSession: "atw-raw-1a2b", windowId: "@1", paneId: "%1" }, {}, { cols: 44, rows: 30 });
 
-  it("maps the complete TTY viewport to tmux rows and columns", () => {
-    expect(buildTmuxCaptureSizeFromClientDimensions(320, 744)).toEqual({ cols: 36, rows: 40 });
-    expect(buildTmuxCaptureSizeFromClientDimensions(390, 744)).toEqual({ cols: 44, rows: 40 });
-    expect(buildTmuxCaptureSizeFromClientDimensions(640, 420)).toEqual({ cols: 75, rows: 22 });
-    expect(buildTmuxCaptureSizeFromClientDimensions(1280, 960)).toEqual({ cols: 154, rows: 52 });
-    expect(buildTmuxCaptureSizeFromClientDimensions(2200, 2200)).toEqual({ cols: 240, rows: 80 });
-  });
-
-  it("builds commands for restoring tmux window size state after detach", () => {
-    expect(buildTmuxDisplayWindowSizeArgs("codex-ui")).toEqual([
-      "display-message",
-      "-p",
-      "-t",
-      "codex-ui",
-      "#{window_width} #{window_height}"
-    ]);
-    expect(buildTmuxShowWindowSizeOptionArgs("codex-ui")).toEqual([
-      "show-window-options",
-      "-v",
-      "-t",
-      "codex-ui",
-      "window-size"
-    ]);
-    expect(buildTmuxSetWindowSizeOptionArgs("codex-ui", "latest")).toEqual([
-      "set-window-option",
-      "-t",
-      "codex-ui",
-      "window-size",
-      "latest"
-    ]);
-    expect(buildTmuxRestoreManualSizeArgs("codex-ui", { cols: 132, rows: 36 })).toEqual([
-      "resize-window",
-      "-t",
-      "codex-ui",
-      "-x",
-      "132",
-      "-y",
-      "36"
-    ]);
-    expect(
-      buildTmuxRestoreWindowStateCommandSequence("codex-ui", {
-        size: { cols: 132, rows: 36 },
-        windowSizeOption: "latest"
-      })
-    ).toEqual([
-      ["resize-window", "-t", "codex-ui", "-x", "132", "-y", "36"],
-      ["set-window-option", "-t", "codex-ui", "window-size", "latest"]
-    ]);
+    expect(attach).not.toMatch(/resize-window|window-size/);
+    expect(index).not.toMatch(/resize-window|window-size|resizeTmuxWindow|restoreTmuxWindowState/);
+    // The window-size guard's unpin is the only resize-window atw may run.
+    const resizers = readdirSync(serverDir)
+      .filter((name) => name.endsWith(".ts") && readFileSync(join(serverDir, name), "utf8").includes('"resize-window"'));
+    expect(resizers).toEqual(["tmuxWindowSize.ts"]);
   });
 });

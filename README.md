@@ -37,6 +37,8 @@ tabs without killing the work.
 - On phones, a selected pane that shares its tmux window is zoomed so it gets
   the full width; atw undoes only its own zoom when the phone moves on,
   disconnects, or goes quiet for a minute.
+- atw never pins a tmux window's size: tmux sizes windows from its clients, and
+  a window atw resized is unpinned if left at `window-size manual`.
 - Built-in launchers for OpenCode, Codex, Claude Code, Gemini CLI, GitHub
   Copilot, Cursor Agent, Qwen Code, Cline, Aider, goose, and Amp.
 - Alphabetical launcher selection with per-device pins for favorites and a `+`

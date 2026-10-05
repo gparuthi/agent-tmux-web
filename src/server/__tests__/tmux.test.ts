@@ -45,7 +45,6 @@ import {
   detectTmuxInterruptKey,
   detectTmuxSubmitKey,
   extractOpenCodeSessionId,
-  fitTmuxCaptureSizeForPane,
   tmuxSubmitDelayMs,
   normalizeTmuxSessionName,
   normalizeTmuxCaptureLines,
@@ -593,22 +592,6 @@ describe("tmux command builders", () => {
       currentPath: "/workspace/app",
       paneTitle: "OC | Active task"
     });
-    expect(fitTmuxCaptureSizeForPane(
-      { cols: 44, rows: 40 },
-      { currentCommand: "opencode", width: 44, height: 40, alternateScreen: true }
-    )).toEqual({ cols: 126, rows: 40 });
-    expect(fitTmuxCaptureSizeForPane(
-      { cols: 135, rows: 40 },
-      { currentCommand: "opencode", width: 135, height: 40, alternateScreen: true }
-    )).toEqual({ cols: 135, rows: 40 });
-    expect(fitTmuxCaptureSizeForPane(
-      { cols: 122, rows: 40 },
-      { currentCommand: "opencode", width: 122, height: 40, alternateScreen: true }
-    )).toEqual({ cols: 126, rows: 40 });
-    expect(fitTmuxCaptureSizeForPane(
-      { cols: 44, rows: 40 },
-      { currentCommand: "opencode", width: 44, height: 40, alternateScreen: false }
-    )).toEqual({ cols: 44, rows: 40 });
   });
 
   it("splits display columns without breaking wide glyphs", () => {

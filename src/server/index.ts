@@ -26,19 +26,10 @@ import { CodexBridge } from "./codexBridge.js";
 import { readTmuxPaneAgents } from "./paneAgents.js";
 import {
   buildBrowserRawTerminalPolicy,
-  buildTmuxCaptureSizeFromClientDimensions,
   buildScriptSpawn,
   buildTmuxGroupedAttachShellCommand,
-  buildTmuxDisplayWindowSizeArgs,
-  buildTmuxResizeWindowArgs,
-  buildTmuxRestoreWindowStateCommandSequence,
-  buildTmuxShowWindowSizeOptionArgs,
-  isSameTerminalSize,
   normalizeTerminalSize,
-  parseTmuxWindowSize,
-  TMUX_RAW_SESSION_PREFIX,
-  type TerminalSize,
-  type TmuxWindowState
+  TMUX_RAW_SESSION_PREFIX
 } from "./terminal.js";
 import {
   buildTmuxPaneAgentLabel,
@@ -50,8 +41,6 @@ import {
   detectTmuxInterruptKey,
   detectTmuxSubmitKey,
   destroyTmuxSession,
-  fitTmuxCaptureSizeForPane,
-  inspectTmuxPane,
   interruptTmuxPane,
   killTmuxSessionQuietly,
   listOrphanedTmuxRawSessions,
@@ -82,6 +71,7 @@ import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
+import { DEFAULT_TMUX_RESIZED_WINDOWS_FILE, TmuxWindowSizeGuard, WINDOW_SIZE_HEAL_MS } from "./tmuxWindowSize.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -109,6 +99,9 @@ const claudePromptTimes = new ClaudePromptTimes();
 const tmuxAutoZoom = new TmuxAutoZoom();
 const agentRowsCache = new AgentRowsCache();
 const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INPUT_FILE || DEFAULT_TMUX_LAST_INPUT_FILE);
+const tmuxWindowSizeGuard = new TmuxWindowSizeGuard({
+  filePath: process.env.AGENT_TMUX_WEB_RESIZED_WINDOWS_FILE || DEFAULT_TMUX_RESIZED_WINDOWS_FILE
+});
 const recentEvents: unknown[] = [];
 const watchPollers = new Map<string, {
   id: string;
@@ -288,23 +281,7 @@ app.get("/api/tmux/capture", asyncHandler(async (req, res) => {
   const session = requireString(req.query.session, "session");
   const lines = typeof req.query.lines === "string" ? Number(req.query.lines) : TMUX_CAPTURE_HISTORY_LINES;
   const outputRevision = stringOrNull(req.query.outputRevision);
-  if (req.query.resize === "true") {
-    const [preserveExistingClientSize, paneMetadata] = await Promise.all([
-      hasAttachedTmuxClients(session).catch(() => false),
-      inspectTmuxPane(session).catch(() => null)
-    ]);
-    const captureSize = fitTmuxCaptureSizeForPane(
-      buildTmuxCaptureSizeFromClientDimensions(req.query.clientWidth, req.query.clientHeight),
-      paneMetadata
-    );
-    const resized = !preserveExistingClientSize && await resizeTmuxWindowIfNeeded(session, captureSize).catch(() => {
-      // Best-effort: capture remains useful even if tmux rejects a resize.
-      return false;
-    });
-    if (resized) {
-      await new Promise((resolve) => setTimeout(resolve, 50));
-    }
-  }
+  // Captures never resize the window, which would pin its size; the pane view wraps lines client-side.
   const capture = await captureTmuxPaneView(session, lines, outputRevision ?? undefined, { ansi: req.query.ansi === "true" });
   res.json({ session, ...capture } satisfies TmuxCaptureDto);
 }));
@@ -666,9 +643,6 @@ tmuxWss.on("connection", async (socket, req) => {
     hasAttachedClients: viewers.sessionClients > 0,
     windowViewedByOtherClients: viewers.windowClients > 0
   });
-  const initialWindowState = rawTerminalPolicy.resizeTmuxWindowOnAttach
-    ? await readTmuxWindowState(session).catch(() => null)
-    : null;
   let cleanedUp = false;
   const cleanup = async () => {
     if (cleanedUp) {
@@ -677,15 +651,8 @@ tmuxWss.on("connection", async (socket, req) => {
     cleanedUp = true;
     rawTerminalSessions.delete(rawTarget);
     await killTmuxSessionQuietly(rawTarget);
-    // Best-effort cleanup; the tmux window should not remain manually sized.
-    await restoreTmuxWindowState(session, initialWindowState).catch(() => undefined);
   };
 
-  if (rawTerminalPolicy.resizeTmuxWindowOnAttach) {
-    await resizeTmuxWindowIfNeeded(session, size).catch(() => {
-      // Best-effort initial resize; the browser PTY is still sized before attach.
-    });
-  }
   if (socket.readyState !== socket.OPEN) {
     await cleanup();
     return;
@@ -754,16 +721,6 @@ tmuxWss.on("connection", async (socket, req) => {
       }
       return;
     }
-
-    if (message.type === "resize" && rawTerminalPolicy.resizeTmuxWindow) {
-      const nextSize = normalizeTerminalSize(message.cols, message.rows);
-      readTmuxViewerCounts(session)
-        // Our own client counts as one viewer; skip if a desktop client switched to this window.
-        .then(({ windowClients }) => windowClients <= 1 ? resizeTmuxWindowIfNeeded(session, nextSize) : false)
-        .catch(() => {
-          // Best-effort resize; the tmux attachment remains usable if this fails.
-        });
-    }
   });
 
   socket.on("close", () => {
@@ -810,6 +767,8 @@ server.listen(port, bindHost, async () => {
   void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
   setInterval(() => void tmuxAutoZoom.sweep().catch(() => undefined), AUTO_ZOOM_SWEEP_MS).unref();
+  void tmuxWindowSizeGuard.load().then(() => tmuxWindowSizeGuard.heal()).catch(() => undefined);
+  setInterval(() => void tmuxWindowSizeGuard.heal().catch(() => undefined), WINDOW_SIZE_HEAL_MS).unref();
   if (codexAppServerAutostart) {
     bridge.start().catch((error: unknown) => {
       console.error("Failed to start Codex bridge", error);
@@ -872,46 +831,6 @@ function parseTerminalMessage(raw: RawData): Record<string, unknown> | null {
     return parsed && typeof parsed === "object" ? parsed as Record<string, unknown> : null;
   } catch {
     return null;
-  }
-}
-
-async function readTmuxWindowState(session: string): Promise<TmuxWindowState> {
-  const [size, { stdout: optionStdout }] = await Promise.all([
-    readTmuxWindowSize(session),
-    execFileAsync("tmux", buildTmuxShowWindowSizeOptionArgs(session))
-  ]);
-  return {
-    size,
-    windowSizeOption: optionStdout.trim() || "latest"
-  };
-}
-
-async function readTmuxWindowSize(session: string): Promise<TerminalSize> {
-  const { stdout } = await execFileAsync("tmux", buildTmuxDisplayWindowSizeArgs(session));
-  return parseTmuxWindowSize(stdout);
-}
-
-async function resizeTmuxWindowIfNeeded(session: string, nextSize: TerminalSize): Promise<boolean> {
-  const currentSize = await readTmuxWindowSize(session);
-  if (isSameTerminalSize(currentSize, nextSize)) {
-    return false;
-  }
-  await execFileAsync("tmux", buildTmuxResizeWindowArgs(session, nextSize));
-  return true;
-}
-
-async function hasAttachedTmuxClients(target: string): Promise<boolean> {
-  const { sessionClients, windowClients } = await readTmuxViewerCounts(target);
-  return sessionClients > 0 || windowClients > 0;
-}
-
-async function restoreTmuxWindowState(session: string, state: TmuxWindowState | null): Promise<void> {
-  if (!state) {
-    return;
-  }
-
-  for (const args of buildTmuxRestoreWindowStateCommandSequence(session, state)) {
-    await execFileAsync("tmux", args);
   }
 }
 

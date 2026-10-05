@@ -12,7 +12,7 @@ import {
 import { displayTmuxPaneCommand } from "../shared/tmuxAgents.js";
 import { tmuxStatus } from "../shared/tmuxStatus.js";
 import { buildTmuxToolCommand, DEFAULT_TMUX_TOOLS } from "../shared/tmuxTools.js";
-import { isTmuxRawSessionName, type TerminalSize } from "./terminal.js";
+import { isTmuxRawSessionName } from "./terminal.js";
 
 export { buildTmuxToolCommand } from "../shared/tmuxTools.js";
 export { displayTmuxPaneCommand } from "../shared/tmuxAgents.js";
@@ -74,8 +74,6 @@ type TmuxPaneView = {
 };
 
 export type TmuxPaneCapture = TmuxPaneView;
-
-export const MIN_OPENCODE_TUI_CAPTURE_COLS = 126;
 
 export type TmuxSubmitKey = "enter" | "codex-enter" | "tab";
 export type TmuxInterruptKey = "escape" | "ctrl-c";
@@ -1223,16 +1221,6 @@ export function isOpenCodeTuiPane(metadata: TmuxPaneMetadata): boolean {
 
 function isOpenCodeCommand(currentCommand: string | undefined): boolean {
   return Boolean(currentCommand && /(?:^|[/\\])opencode(?:\.exe)?$/i.test(currentCommand));
-}
-
-export function fitTmuxCaptureSizeForPane(size: TerminalSize, metadata: TmuxPaneMetadata | null): TerminalSize {
-  if (!metadata || !isOpenCodeTuiPane(metadata)) {
-    return size;
-  }
-  return {
-    ...size,
-    cols: Math.max(size.cols, MIN_OPENCODE_TUI_CAPTURE_COLS)
-  };
 }
 
 export function splitOpenCodeTuiCapture(output: string, paneWidth: number, paneHeight?: number): TmuxPaneView | null {

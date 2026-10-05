@@ -3,19 +3,13 @@ export type TerminalSize = {
   rows: number;
 };
 
-export type TmuxWindowState = {
-  size: TerminalSize;
-  windowSizeOption: string;
-};
-
 export type TmuxAttachOptions = {
   ignoreSize?: boolean;
 };
 
+// atw never runs resize-window for raw terminals: tmux sizes the window from its clients (window-size latest).
 export type BrowserRawTerminalPolicy = {
   attachOptions: TmuxAttachOptions;
-  resizeTmuxWindowOnAttach: boolean;
-  resizeTmuxWindow: boolean;
 };
 
 // Grouped sessions created for browser raw terminals; hidden from listings and swept on startup.
@@ -32,17 +26,9 @@ export type TmuxGroupedAttachTarget = {
 export function buildBrowserRawTerminalPolicy(context: { hasAttachedClients: boolean; windowViewedByOtherClients?: boolean }): BrowserRawTerminalPolicy {
   // Never resize a window another client is looking at; the browser gets that client's size instead.
   if (context.windowViewedByOtherClients) {
-    return {
-      attachOptions: { ignoreSize: true },
-      resizeTmuxWindowOnAttach: false,
-      resizeTmuxWindow: false
-    };
+    return { attachOptions: { ignoreSize: true } };
   }
-  return {
-    attachOptions: {},
-    resizeTmuxWindowOnAttach: true,
-    resizeTmuxWindow: true
-  };
+  return { attachOptions: {} };
 }
 
 export function buildScriptArgsForShellCommand(command: string, platform: NodeJS.Platform = process.platform): string[] {
@@ -96,63 +82,11 @@ export function buildTmuxAttachShellCommand(session: string, options: TmuxAttach
   return `stty cols ${size.cols} rows ${size.rows}; ${attachCommand}`;
 }
 
-export function buildTmuxResizeWindowArgs(session: string, size: TerminalSize): string[] {
-  return [
-    "resize-window",
-    "-t",
-    session,
-    "-x",
-    String(size.cols),
-    "-y",
-    String(size.rows)
-  ];
-}
-
-export function buildTmuxCaptureSizeFromClientDimensions(clientWidth: unknown, clientHeight: unknown): TerminalSize {
-  const width = toInteger(clientWidth, 1280);
-  const height = toInteger(clientHeight, 744);
-  const cols = Math.floor((width - 24) / 8.15);
-  const rows = Math.floor((height - 24) / 18);
-  return normalizeTerminalSize(cols, rows);
-}
-
-export function buildTmuxDisplayWindowSizeArgs(session: string): string[] {
-  return ["display-message", "-p", "-t", session, "#{window_width} #{window_height}"];
-}
-
-export function buildTmuxShowWindowSizeOptionArgs(session: string): string[] {
-  return ["show-window-options", "-v", "-t", session, "window-size"];
-}
-
-export function buildTmuxSetWindowSizeOptionArgs(session: string, option: string): string[] {
-  return ["set-window-option", "-t", session, "window-size", option];
-}
-
-export function buildTmuxRestoreManualSizeArgs(session: string, size: TerminalSize): string[] {
-  return buildTmuxResizeWindowArgs(session, size);
-}
-
-export function buildTmuxRestoreWindowStateCommandSequence(session: string, state: TmuxWindowState): string[][] {
-  return [
-    buildTmuxRestoreManualSizeArgs(session, state.size),
-    buildTmuxSetWindowSizeOptionArgs(session, state.windowSizeOption)
-  ];
-}
-
-export function parseTmuxWindowSize(output: string): TerminalSize {
-  const [cols, rows] = output.trim().split(/\s+/).map(Number);
-  return normalizeTerminalSize(cols, rows);
-}
-
 export function normalizeTerminalSize(cols: unknown, rows: unknown): TerminalSize {
   return {
     cols: clamp(toInteger(cols, 80), 20, 240),
     rows: clamp(toInteger(rows, 24), 8, 80)
   };
-}
-
-export function isSameTerminalSize(left: TerminalSize, right: TerminalSize): boolean {
-  return left.cols === right.cols && left.rows === right.rows;
 }
 
 function toInteger(value: unknown, fallback: number): number {
