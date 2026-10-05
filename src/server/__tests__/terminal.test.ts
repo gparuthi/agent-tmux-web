@@ -5,11 +5,14 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildBrowserRawTerminalPolicy,
+  buildProcessTtyListArgs,
+  buildPtyResizeArgs,
   buildScriptArgsForShellCommand,
   buildScriptArgsForTmuxAttach,
   buildScriptSpawn,
   buildTmuxAttachShellCommand,
   buildTmuxGroupedAttachShellCommand,
+  findRawTerminalPtyTty,
   isTmuxRawSessionName,
   normalizeTerminalSize
 } from "../terminal.js";
@@ -119,6 +122,29 @@ describe("browser tmux terminal helpers", () => {
     expect(normalizeTerminalSize(10, 4)).toEqual({ cols: 20, rows: 8 });
     expect(normalizeTerminalSize(999, 999)).toEqual({ cols: 240, rows: 80 });
     expect(normalizeTerminalSize(132, 36)).toEqual({ cols: 132, rows: 36 });
+  });
+
+  it("finds the raw client's own pty under the script process", () => {
+    expect(buildProcessTtyListArgs()).toEqual(["-A", "-o", "pid=,ppid=,tty="]);
+    // macOS under launchd: script and the stdin relay (cat) have no terminal; sh and tmux sit on script's pty.
+    expect(findRawTerminalPtyTty([
+      "  1     0 ??",
+      "100     1 ??",
+      "200   100 ??",
+      "201   200 ??",
+      "202   200 ttys021",
+      "203   202 ttys021",
+      "300     1 ttys004"
+    ].join("\n"), 200)).toBe("/dev/ttys021");
+    // Started from a terminal: the relay inherits atw's terminal, which must never be resized.
+    expect(findRawTerminalPtyTty("200 100 ttys004\n201 200 ttys004\n202 200 ttys021\n", 200)).toBe("/dev/ttys021");
+    expect(findRawTerminalPtyTty("200 100 ?\n202 200 pts/3\n", 200)).toBe("/dev/pts/3");
+    expect(findRawTerminalPtyTty("200 100 ??\n201 200 ??\n300 1 ttys021\n", 200)).toBeNull();
+  });
+
+  it("resizes a pty with the platform's stty flag", () => {
+    expect(buildPtyResizeArgs("/dev/ttys021", { cols: 44, rows: 30 }, "darwin")).toEqual(["-f", "/dev/ttys021", "cols", "44", "rows", "30"]);
+    expect(buildPtyResizeArgs("/dev/pts/3", { cols: 44, rows: 30 }, "linux")).toEqual(["-F", "/dev/pts/3", "cols", "44", "rows", "30"]);
   });
 
   it("never resizes tmux windows from raw attaches or captures", () => {

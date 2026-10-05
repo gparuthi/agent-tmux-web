@@ -82,6 +82,38 @@ export function buildTmuxAttachShellCommand(session: string, options: TmuxAttach
   return `stty cols ${size.cols} rows ${size.rows}; ${attachCommand}`;
 }
 
+export function buildProcessTtyListArgs(): string[] {
+  return ["-A", "-o", "pid=,ppid=,tty="];
+}
+
+// The raw client's pty: a descendant of the script process on a terminal script did not inherit from atw.
+export function findRawTerminalPtyTty(psOutput: string, scriptPid: number): string | null {
+  const rows = psOutput.split(/\r?\n/).map((line) => line.trim().split(/\s+/)).filter((row) => row.length >= 3);
+  const ttyOf = new Map(rows.map(([pid, , tty]) => [pid, tty]));
+  const inheritedTty = ttyOf.get(String(scriptPid));
+  const tree = new Set([String(scriptPid)]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const [pid, ppid, tty] of rows) {
+      if (tree.has(pid) || !tree.has(ppid)) {
+        continue;
+      }
+      tree.add(pid);
+      grew = true;
+      // ps prints "??" (macOS) or "?" (Linux) for processes without a terminal.
+      if (/^[A-Za-z0-9/]+$/.test(tty) && tty !== inheritedTty) {
+        return `/dev/${tty}`;
+      }
+    }
+  }
+  return null;
+}
+
+// Resizing the raw client's pty is a client resize to tmux; resize-window would pin the window instead.
+export function buildPtyResizeArgs(tty: string, size: TerminalSize, platform: NodeJS.Platform = process.platform): string[] {
+  return [platform === "darwin" ? "-f" : "-F", tty, "cols", String(size.cols), "rows", String(size.rows)];
+}
+
 export function normalizeTerminalSize(cols: unknown, rows: unknown): TerminalSize {
   return {
     cols: clamp(toInteger(cols, 80), 20, 240),

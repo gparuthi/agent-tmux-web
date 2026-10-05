@@ -26,8 +26,11 @@ import { CodexBridge } from "./codexBridge.js";
 import { readTmuxPaneAgents } from "./paneAgents.js";
 import {
   buildBrowserRawTerminalPolicy,
+  buildProcessTtyListArgs,
+  buildPtyResizeArgs,
   buildScriptSpawn,
   buildTmuxGroupedAttachShellCommand,
+  findRawTerminalPtyTty,
   normalizeTerminalSize,
   TMUX_RAW_SESSION_PREFIX
 } from "./terminal.js";
@@ -677,6 +680,7 @@ tmuxWss.on("connection", async (socket, req) => {
     },
     stdio: ["pipe", "pipe", "pipe"]
   });
+  let ptyTty: string | null = null;
   rawTerminalSessions.set(rawTarget, {
     baseSession: entry.session,
     close: () => {
@@ -720,6 +724,18 @@ tmuxWss.on("connection", async (socket, req) => {
         tmuxWatch.startWatch(session, "Tmux task");
       }
       return;
+    }
+
+    if (message.type === "resize") {
+      const nextSize = normalizeTerminalSize(message.cols, message.rows);
+      void (async () => {
+        ptyTty ??= await findRawTerminalPty(child.pid);
+        if (ptyTty) {
+          await execFileAsync("stty", buildPtyResizeArgs(ptyTty, nextSize));
+        }
+      })().catch(() => {
+        // Best-effort; the tmux client keeps its previous size.
+      });
     }
   });
 
@@ -832,6 +848,14 @@ function parseTerminalMessage(raw: RawData): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+async function findRawTerminalPty(scriptPid: number | undefined): Promise<string | null> {
+  if (!scriptPid) {
+    return null;
+  }
+  const { stdout } = await execFileAsync("ps", buildProcessTtyListArgs());
+  return findRawTerminalPtyTty(stdout, scriptPid);
 }
 
 async function resolveTmuxSubmitKey(session: string, requested: unknown): Promise<TmuxSubmitKey> {
