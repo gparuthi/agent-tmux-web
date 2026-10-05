@@ -695,6 +695,35 @@ export function App() {
     loadTmuxSessions().catch(reportError(setError));
   }, [loadStatus, loadTmuxSessions]);
 
+  // Phones zoom the selected pane when it shares its window (half of ~43 columns is unreadable). The
+  // server zooms only a split, unzoomed window and undoes only its own zoom once this phone moves on.
+  const autoZoomTarget = selectedTmuxLocalPane ? selectedTmux : "";
+  const autoZoomSentRef = useRef("");
+  useEffect(() => {
+    if (demoMode || !mobileRawInput) {
+      return;
+    }
+    const follow = () => {
+      if (!autoZoomTarget && !autoZoomSentRef.current) {
+        return;
+      }
+      autoZoomSentRef.current = autoZoomTarget;
+      void api("/api/tmux/auto-zoom", {
+        method: "POST",
+        body: JSON.stringify({ clientId: BROWSER_CLIENT_ID, target: autoZoomTarget })
+      }).catch(() => undefined);
+    };
+    follow();
+    // Coming back after the server undid the zoom for an idle phone zooms again.
+    const followWhenVisible = () => {
+      if (!document.hidden) {
+        follow();
+      }
+    };
+    document.addEventListener("visibilitychange", followWhenVisible);
+    return () => document.removeEventListener("visibilitychange", followWhenVisible);
+  }, [autoZoomTarget, mobileRawInput]);
+
   // A refresh that dropped the selected pane (killed in a terminal or by a tpal action) moves on by the rail's rule.
   const previousTmuxSessionsRef = useRef(tmuxSessions);
   useEffect(() => {
@@ -926,7 +955,8 @@ export function App() {
     const connectTimer = window.setTimeout(() => {
       const token = browserAccessToken();
       const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-      socket = new WebSocket(`${protocol}://${window.location.host}/ws${token ? `?token=${encodeURIComponent(token)}` : ""}`);
+      const params = new URLSearchParams({ clientId: BROWSER_CLIENT_ID, ...(token ? { token } : {}) });
+      socket = new WebSocket(`${protocol}://${window.location.host}/ws?${params}`);
       socket.onmessage = (event) => {
         const payload = JSON.parse(event.data) as WsPayload;
         if (payload.type === "tmux-watch-done" && isTmuxWatchEvent(payload.event)) {

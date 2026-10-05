@@ -81,6 +81,7 @@ import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivi
 import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
+import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +106,7 @@ const rawTerminalClients = new Map<string, Map<string, number>>();
 // Grouped raw sessions by routed target, with the base session they join and a cleanup hook.
 const rawTerminalSessions = new Map<string, { baseSession: string; close: () => void }>();
 const claudePromptTimes = new ClaudePromptTimes();
+const tmuxAutoZoom = new TmuxAutoZoom();
 const agentRowsCache = new AgentRowsCache();
 const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INPUT_FILE || DEFAULT_TMUX_LAST_INPUT_FILE);
 const recentEvents: unknown[] = [];
@@ -270,7 +272,12 @@ app.post("/api/turn/interrupt", asyncHandler(async (req, res) => {
 }));
 
 app.get("/api/tmux/sessions", asyncHandler(async (req, res) => {
-  res.json({ data: await listTmuxSessionsWithStatus(stringOrNull(req.query.clientId)) });
+  const clientId = stringOrNull(req.query.clientId);
+  // The rail's poll is how a phone that auto-zoomed a pane shows it is still looking.
+  if (clientId) {
+    tmuxAutoZoom.seen(clientId);
+  }
+  res.json({ data: await listTmuxSessionsWithStatus(clientId) });
 }));
 
 app.get("/api/tmux/tools", asyncHandler(async (_req, res) => {
@@ -371,6 +378,11 @@ app.use(createWindowSnoozeRouter({
   hideWindowBin: () => findHideWindowBin(),
   listPanes: listTmuxSessions,
   listSessions: () => listTmuxSessionsWithStatus()
+}));
+
+app.use(createTmuxAutoZoomRouter({
+  autoZoom: tmuxAutoZoom,
+  listPanes: listTmuxSessions
 }));
 
 app.use(createTpalActionsRouter({
@@ -607,6 +619,11 @@ wss.on("connection", async (socket, req) => {
 
   sockets.add(socket);
   socket.on("close", () => sockets.delete(socket));
+  const clientId = stringOrNull(new URL(req.url ?? "/ws", "http://localhost").searchParams.get("clientId"));
+  if (clientId) {
+    tmuxAutoZoom.socketOpened(clientId);
+    socket.on("close", () => tmuxAutoZoom.socketClosed(clientId));
+  }
   socket.send(JSON.stringify({
     type: "hello",
     status: await getStatus()
@@ -792,6 +809,7 @@ server.listen(port, bindHost, async () => {
   void tmuxLastInput.load();
   void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
+  setInterval(() => void tmuxAutoZoom.sweep().catch(() => undefined), AUTO_ZOOM_SWEEP_MS).unref();
   if (codexAppServerAutostart) {
     bridge.start().catch((error: unknown) => {
       console.error("Failed to start Codex bridge", error);

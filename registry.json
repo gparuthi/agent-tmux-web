@@ -58,6 +58,7 @@
         { "path": "src/client/TmuxActionsSheet.tsx", "type": "registry:file", "target": "~/src/client/TmuxActionsSheet.tsx" },
         { "path": "src/client/tmuxActions.ts", "type": "registry:file", "target": "~/src/client/tmuxActions.ts" },
         { "path": "src/server/tpalActions.ts", "type": "registry:file", "target": "~/src/server/tpalActions.ts" },
+        { "path": "src/server/tmuxAutoZoom.ts", "type": "registry:file", "target": "~/src/server/tmuxAutoZoom.ts" },
         { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
@@ -299,6 +300,11 @@
           "path": "src/server/tpalActions.ts",
           "type": "registry:file",
           "target": "~/src/server/tpalActions.ts"
+        },
+        {
+          "path": "src/server/tmuxAutoZoom.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tmuxAutoZoom.ts"
         },
         {
           "path": "src/server/agentRows.ts",

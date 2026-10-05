@@ -34,6 +34,9 @@ tabs without killing the work.
 - Long-running tmux sessions that survive browser disconnects and phone sleep.
 - Mobile-friendly session switching, creation, destruction, and launcher
   controls.
+- On phones, a selected pane that shares its tmux window is zoomed so it gets
+  the full width; atw undoes only its own zoom when the phone moves on,
+  disconnects, or goes quiet for a minute.
 - Built-in launchers for OpenCode, Codex, Claude Code, Gemini CLI, GitHub
   Copilot, Cursor Agent, Qwen Code, Cline, Aider, goose, and Amp.
 - Alphabetical launcher selection with per-device pins for favorites and a `+`
