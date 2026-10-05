@@ -104,7 +104,6 @@ import {
 } from "./tmuxSessionTarget.js";
 import {
   filterTmuxAgentPanes,
-  initialTmuxPaneSelection,
   LAST_TMUX_PANE_STORAGE_KEY,
   markTmuxPanesViewed,
   nextTmuxRailPaneAfter,
@@ -114,6 +113,7 @@ import {
   SHOW_ALL_TMUX_PANES_STORAGE_KEY,
   TMUX_PANE_VIEWS_STORAGE_KEY,
   TMUX_SESSION_GROUPS_STORAGE_KEY,
+  tmuxPaneSelectionOnLoad,
   tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
   visibleTmuxRailPanes,
@@ -514,7 +514,7 @@ export function App() {
     const result = await api<{ data: TmuxSessionDto[] }>(`/api/tmux/sessions?clientId=${encodeURIComponent(BROWSER_CLIENT_ID)}`);
     setTmuxSessions(result.data);
     // Storage, not state: this callback is stable, and every rail preference is written through.
-    setSelectedTmux((current) => current || initialTmuxPaneSelection(result.data, readStoredValue(LAST_TMUX_PANE_STORAGE_KEY), {
+    setSelectedTmux((current) => tmuxPaneSelectionOnLoad(current, result.data, readStoredValue(LAST_TMUX_PANE_STORAGE_KEY), {
       pinnedNames: readInitialPinnedTmuxSessionNames(),
       preferences: readInitialTmuxSessionGroupPreferences(),
       showAll: readInitialShowAllTmuxPanes()

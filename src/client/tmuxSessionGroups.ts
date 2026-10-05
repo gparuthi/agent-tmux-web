@@ -103,16 +103,21 @@ function fallbackTmuxRailPanes(entries: TmuxSessionDto[], view: TmuxRailView): T
     .filter((entry) => !isUnderscoreTmuxSession(entry) && !entry.snoozedUntilMs);
 }
 
-// The pane to open on load: the last one this browser selected if the rail still shows it, else the
-// rail's first row. "_" sessions (_hidden) only count when the owner expanded them; never by default.
+// The pane to open on load: the last one this browser selected while tmux still lists it, even a
+// non-agent pane or one in a collapsed group, else the rail's first row. A snoozed pane, or one in a
+// "_" session (_hidden) the owner has not expanded, falls back instead.
 export function initialTmuxPaneSelection(entries: TmuxSessionDto[], stored: string | null, view: TmuxRailView): string {
-  const visible = visibleTmuxRailPanes(filterTmuxAgentPanes(entries, view.showAll, ""), view.pinnedNames, view.preferences);
   const expanded = (session: string | undefined) => view.preferences.some(([name, collapsed]) => name === session && !collapsed);
-  const restored = stored ? visible.find((entry) => entry.name === stored) : undefined;
-  if (restored && (!isUnderscoreTmuxSession(restored) || expanded(restored.session))) {
+  const restored = stored ? entries.find((entry) => entry.name === stored) : undefined;
+  if (restored && !restored.snoozedUntilMs && (!isUnderscoreTmuxSession(restored) || expanded(restored.session))) {
     return restored.name;
   }
   return fallbackTmuxPaneSelection(entries, view);
+}
+
+// A selection made before the first listing arrived (a ?tmuxSession= deep link) wins over the stored pane.
+export function tmuxPaneSelectionOnLoad(current: string, entries: TmuxSessionDto[], stored: string | null, view: TmuxRailView): string {
+  return current || initialTmuxPaneSelection(entries, stored, view);
 }
 
 // The rail's first row a selection may land on, or nothing.

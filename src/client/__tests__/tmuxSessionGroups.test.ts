@@ -18,11 +18,13 @@ import {
   parseTmuxSessionGroupPreferences,
   setTmuxSessionGroupCollapsed,
   tmuxPaneGroupDetail,
+  tmuxPaneSelectionOnLoad,
   tmuxPaneStatus,
   tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
   visibleTmuxRailPanes,
-  type TmuxRailView
+  type TmuxRailView,
+  type TmuxSessionGroupPreferences
 } from "../tmuxSessionGroups.js";
 
 const WORKING: TmuxSessionStatusDto = { kind: "working", title: "Working" };
@@ -359,22 +361,42 @@ describe("initial pane selection", () => {
     expect(initialTmuxPaneSelection(entries, null, view)).toBe("%3");
   });
 
-  it("restores the stored pane while the rail still shows it", () => {
+  it("restores the stored pane while tmux still lists it, else the rail's first row", () => {
     expect(initialTmuxPaneSelection(entries, "%4", view)).toBe("%4");
     expect(initialTmuxPaneSelection(entries, "%gone", view)).toBe("%3");
   });
 
-  it("skips a stored pane the rail hides: non-agent, collapsed group, or a default-collapsed _ session", () => {
-    expect(initialTmuxPaneSelection(entries, "%2", view)).toBe("%3");
-    expect(initialTmuxPaneSelection(entries, "%2", { ...view, showAll: true })).toBe("%2");
-    expect(initialTmuxPaneSelection(entries, "%4", { ...view, preferences: [["main", true]] })).toBe("%1");
-    expect(initialTmuxPaneSelection(entries, "%30", view)).toBe("%3");
+  it("restores a non-agent pane, which the agent filter keeps in the rail once selected", () => {
+    const selected = initialTmuxPaneSelection(entries, "%2", view);
+    expect(selected).toBe("%2");
+    expect(filterTmuxAgentPanes(entries, false, selected).map((entry) => entry.name)).toContain("%2");
+  });
+
+  it("restores a pane in a collapsed group and leaves the group collapsed", () => {
+    const collapsed = { ...view, preferences: [["main", true]] as TmuxSessionGroupPreferences };
+    expect(initialTmuxPaneSelection(entries, "%4", collapsed)).toBe("%4");
+    expect(initialTmuxPaneSelection(entries, "%3", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("%3");
+    expect(isTmuxSessionGroupCollapsed(collapsed.preferences, "main")).toBe(true);
   });
 
   it("restores a stored _hidden pane only when the owner expanded that group", () => {
+    expect(initialTmuxPaneSelection(entries, "%30", view)).toBe("%3");
+    expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["_hidden", true]] })).toBe("%3");
     expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["_hidden", false]] })).toBe("%30");
     // Expanded, but nothing stored: the default still skips _ sessions.
     expect(initialTmuxPaneSelection(entries, null, { ...view, preferences: [["_hidden", false]] })).toBe("%3");
+  });
+
+  it("falls back from a snoozed pane, even with _hidden expanded", () => {
+    const snoozed = [...entries, agent("%31", "_hidden", 950, { snoozedUntilMs: 9_999 })];
+    expect(initialTmuxPaneSelection(snoozed, "%31", view)).toBe("%3");
+    expect(initialTmuxPaneSelection(snoozed, "%31", { ...view, preferences: [["_hidden", false]] })).toBe("%3");
+  });
+
+  it("lets a selection made before the listing arrived (a deep link) win over the stored pane", () => {
+    expect(tmuxPaneSelectionOnLoad("%1", entries, "%4", view)).toBe("%1");
+    expect(tmuxPaneSelectionOnLoad("", entries, "%4", view)).toBe("%4");
+    expect(tmuxPaneSelectionOnLoad("", entries, null, view)).toBe("%3");
   });
 
   it("puts pinned panes first, except pinned _ session panes", () => {
@@ -384,7 +406,7 @@ describe("initial pane selection", () => {
 
   it("selects nothing when the rail shows nothing", () => {
     expect(initialTmuxPaneSelection([entries[0]!, entries[2]!], null, view)).toBe("");
-    expect(initialTmuxPaneSelection(entries, "%3", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("");
+    expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("");
     expect(initialTmuxPaneSelection([], "%3", view)).toBe("");
   });
 });
