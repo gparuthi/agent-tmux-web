@@ -28,6 +28,7 @@ import {
   Monitor,
   Moon,
   Paperclip,
+  PencilLine,
   Pin,
   Play,
   Plus,
@@ -52,11 +53,14 @@ import {
   type TmuxActionRunDto,
   type TmuxActionsDto,
   type TmuxCaptureDto,
+  type TmuxRenameResultDto,
   type TmuxSessionDto,
   type TmuxWatchEvent,
   type UploadedFileDto
 } from "../shared/api.js";
 import { describeThreadItem, type UiEventDescription } from "../shared/codexEvents.js";
+import { tmuxEntryAgent } from "../shared/tmuxAgents.js";
+import { supportsTmuxRename, tmuxRenamePrefill } from "../shared/tmuxRename.js";
 import {
   filterSlashCommands,
   parseSlashCommand,
@@ -136,6 +140,7 @@ import {
 import { TmuxKeyStrip } from "./TmuxKeyStrip.js";
 import { NewAgentSheet } from "./NewAgentSheet.js";
 import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
+import { RenameSessionSheet } from "./RenameSessionSheet.js";
 import { TmuxActionsSheet } from "./TmuxActionsSheet.js";
 import { formatTmuxActionResult } from "./tmuxActions.js";
 import { readApiErrorMessage } from "./newAgent.js";
@@ -208,6 +213,7 @@ const TMUX_MANUAL_CAPTURE_TIMEOUT_MS = 15_000;
 const RAW_TERMINAL_INPUT_CHUNK_SIZE = 16_000;
 const TMUX_NOTIFICATION_STORAGE_KEY = "agent-tmux-web.notify";
 const TMUX_SESSION_STATUS_POLL_INTERVAL_MS = 3_000;
+const TMUX_RENAME_REFRESH_DELAY_MS = 1_500;
 const TMUX_SCROLL_ANCHOR_SELECTOR = "[data-tmux-scroll-anchor]";
 const BROWSER_CLIENT_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const demoMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
@@ -355,6 +361,7 @@ export function App() {
   const [newAgentOpen, setNewAgentOpen] = useState(false);
   const [windowSnoozeTarget, setWindowSnoozeTarget] = useState("");
   const [tmuxActionsTarget, setTmuxActionsTarget] = useState("");
+  const [renameSession, setRenameSession] = useState<{ target: string; agent: string; initialName: string } | null>(null);
   const [tmuxToast, setTmuxToast] = useState<{ text: string; error: boolean } | null>(null);
   const [pinnedTmuxSessionNames, setPinnedTmuxSessionNames] = useState<string[]>(readInitialPinnedTmuxSessionNames);
   const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
@@ -460,6 +467,10 @@ export function App() {
   const paneActionsAvailable = !demoMode && Boolean(status?.paneActions);
   const selectedTmuxLocalPane = Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
   const tmuxActionsEntry = tmuxActionsTarget ? findTmuxPane(tmuxSessions, tmuxActionsTarget) : undefined;
+  const selectedTmuxAgent = selectedTmuxEntry ? tmuxEntryAgent(selectedTmuxEntry) : null;
+  // Rename types the agent's own slash command, so only panes running an agent that has one.
+  const selectedTmuxRenamable = !demoMode && Boolean(selectedTmuxEntry?.paneId) && supportsTmuxRename(selectedTmuxAgent);
+  const renameSessionEntry = renameSession ? findTmuxPane(tmuxSessions, renameSession.target) : undefined;
   const loadTmuxActions = useCallback(
     () => api<{ data: TmuxActionsDto }>(`/api/tmux/actions?target=${encodeURIComponent(tmuxActionsTarget)}`).then((result) => result.data),
     [tmuxActionsTarget]
@@ -1935,6 +1946,28 @@ export function App() {
     }
   }
 
+  function openRenameSessionSheet() {
+    if (selectedTmuxEntry && selectedTmuxAgent && selectedTmuxRenamable) {
+      closeTmuxSettingsMenu();
+      setRenameSession({
+        target: selectedTmuxEntry.name,
+        agent: selectedTmuxAgent,
+        initialName: tmuxRenamePrefill(selectedTmuxAgent, selectedTmuxEntry.paneTitle)
+      });
+    }
+  }
+
+  async function renameTmuxSession(target: string, name: string) {
+    const result = await api<{ data: TmuxRenameResultDto }>("/api/tmux/rename", {
+      method: "POST",
+      body: JSON.stringify({ target, name })
+    });
+    setRenameSession(null);
+    setTmuxToast({ text: `Sent ${result.data.text}`, error: false });
+    // The agent retitles its pane once it handles the command; the rail label follows the title.
+    window.setTimeout(() => void loadTmuxSessions().catch(() => undefined), TMUX_RENAME_REFRESH_DELAY_MS);
+  }
+
   async function runTmuxAction(target: string, action: TmuxActionDto): Promise<string> {
     const result = await api<{ data: TmuxActionRunDto }>("/api/tmux/actions/run", {
       method: "POST",
@@ -2530,13 +2563,21 @@ export function App() {
                 <Ellipsis aria-hidden="true" size={16} />
               </summary>
               <div className="tmux-view-menu-content tmux-settings-menu-content" role="menu">
-                {paneActionsAvailable && (
+                {(paneActionsAvailable || selectedTmuxRenamable) && (
                   <div className="tmux-view-menu-section tmux-settings-actions">
                     <span>This pane</span>
-                    <button disabled={!selectedTmuxLocalPane} role="menuitem" type="button" onClick={openTmuxActionsSheet}>
-                      <Command size={15} />
-                      <span>Actions…</span>
-                    </button>
+                    {selectedTmuxRenamable && (
+                      <button role="menuitem" type="button" onClick={openRenameSessionSheet}>
+                        <PencilLine size={15} />
+                        <span>Rename session…</span>
+                      </button>
+                    )}
+                    {paneActionsAvailable && (
+                      <button disabled={!selectedTmuxLocalPane} role="menuitem" type="button" onClick={openTmuxActionsSheet}>
+                        <Command size={15} />
+                        <span>Actions…</span>
+                      </button>
+                    )}
                   </div>
                 )}
                 <div className="tmux-view-menu-section tmux-settings-actions">
@@ -2742,6 +2783,15 @@ export function App() {
         >
           {tmuxToast.text}
         </button>
+      )}
+      {renameSession && renameSessionEntry && (
+        <RenameSessionSheet
+          agent={renameSession.agent}
+          initialName={renameSession.initialName}
+          paneName={tmuxPaneDisplayName(renameSessionEntry)}
+          rename={(name) => renameTmuxSession(renameSession.target, name)}
+          onClose={() => setRenameSession(null)}
+        />
       )}
       {windowSnoozeEntry && (
         <WindowSnoozeSheet

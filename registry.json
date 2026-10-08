@@ -60,6 +60,9 @@
         { "path": "src/server/tpalActions.ts", "type": "registry:file", "target": "~/src/server/tpalActions.ts" },
         { "path": "src/server/tmuxAutoZoom.ts", "type": "registry:file", "target": "~/src/server/tmuxAutoZoom.ts" },
         { "path": "src/server/tmuxWindowSize.ts", "type": "registry:file", "target": "~/src/server/tmuxWindowSize.ts" },
+        { "path": "src/client/RenameSessionSheet.tsx", "type": "registry:file", "target": "~/src/client/RenameSessionSheet.tsx" },
+        { "path": "src/server/tmuxRename.ts", "type": "registry:file", "target": "~/src/server/tmuxRename.ts" },
+        { "path": "src/shared/tmuxRename.ts", "type": "registry:file", "target": "~/src/shared/tmuxRename.ts" },
         { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
@@ -311,6 +314,21 @@
           "path": "src/server/tmuxWindowSize.ts",
           "type": "registry:file",
           "target": "~/src/server/tmuxWindowSize.ts"
+        },
+        {
+          "path": "src/client/RenameSessionSheet.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/RenameSessionSheet.tsx"
+        },
+        {
+          "path": "src/server/tmuxRename.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tmuxRename.ts"
+        },
+        {
+          "path": "src/shared/tmuxRename.ts",
+          "type": "registry:file",
+          "target": "~/src/shared/tmuxRename.ts"
         },
         {
           "path": "src/server/agentRows.ts",

@@ -73,6 +73,14 @@ export type TmuxActionRunDto = {
   output: string;
 };
 
+// What /api/tmux/rename typed into the pane: the agent's rename command and the cleaned name.
+export type TmuxRenameResultDto = {
+  target: string;
+  agent: string;
+  name: string;
+  text: string;
+};
+
 // Same five states and colours as gpmon's agents panel.
 export type TmuxSessionStatusKind = "working" | "blocked" | "done" | "idle" | "unknown";
 

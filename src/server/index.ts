@@ -72,6 +72,7 @@ import {
 import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
+import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
 import { DEFAULT_TMUX_RESIZED_WINDOWS_FILE, TmuxWindowSizeGuard, WINDOW_SIZE_HEAL_MS } from "./tmuxWindowSize.js";
@@ -368,6 +369,13 @@ app.use(createTmuxAutoZoomRouter({
 app.use(createTpalActionsRouter({
   tpalBin: () => findTpalBin(),
   listPanes: listTmuxSessions
+}));
+
+app.use(createTmuxRenameRouter({
+  listPanes: listTmuxSessions,
+  readPaneAgents: readTmuxPaneAgents,
+  submitText: (target, text) => sendTmuxText(target, text, true, "enter"),
+  onSubmitted: (target) => tmuxLastInput.record(target)
 }));
 
 app.post("/api/tmux/open-codex", asyncHandler(async (req, res) => {
