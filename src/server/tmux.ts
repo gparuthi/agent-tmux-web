@@ -294,6 +294,17 @@ export function buildTmuxSendKeyArgs(session: string, key: string): string[] {
   return ["send-keys", "-t", session, key.endsWith(";") ? `${key.slice(0, -1)}\\;` : key];
 }
 
+// tmux reads an argument's trailing ";" as a command separator even with -l, and "\;" eats a
+// preceding backslash, so a trailing ";" goes as its hex code instead.
+export function buildTmuxLiteralSendArgs(session: string, chunk: string): string[][] {
+  const head = chunk.replace(/;+$/, "");
+  const semicolons = chunk.length - head.length;
+  return [
+    ...(head ? [["send-keys", "-t", session, "-l", head]] : []),
+    ...(semicolons > 0 ? [["send-keys", "-t", session, "-H", ...Array<string>(semicolons).fill("3b")]] : [])
+  ];
+}
+
 export function detectTmuxSubmitKey(output: string): TmuxSubmitKey {
   return isCodexTmuxOutput(output) ? "codex-enter" : "enter";
 }
@@ -1330,7 +1341,9 @@ export async function sendTmuxText(session: string, text: string, enter: boolean
 
   if (text.length > 0) {
     for (const chunk of chunkTmuxLiteralText(text)) {
-      await execFileAsync("tmux", ["send-keys", "-t", session, "-l", chunk]);
+      for (const args of buildTmuxLiteralSendArgs(session, chunk)) {
+        await execFileAsync("tmux", args);
+      }
     }
   }
 

@@ -37,6 +37,7 @@ import {
   TMUX_LIST_PANES_FORMAT,
   buildTmuxInterruptKeysArgs,
   buildTmuxPaneInModeArgs,
+  buildTmuxLiteralSendArgs,
   buildTmuxSendKeyArgs,
   buildTmuxSubmitKeysArgs,
   buildTmuxToolCommand,
@@ -487,6 +488,15 @@ describe("tmux command builders", () => {
     } catch (error) {
       expect((error as { statusCode?: number }).statusCode).toBe(400);
     }
+  });
+
+  it("sends literal text with any trailing semicolons as hex keys", () => {
+    expect(buildTmuxLiteralSendArgs("%12", "/rename a;b")).toEqual([["send-keys", "-t", "%12", "-l", "/rename a;b"]]);
+    expect(buildTmuxLiteralSendArgs("%12", "/rename x\\;")).toEqual([
+      ["send-keys", "-t", "%12", "-l", "/rename x\\"],
+      ["send-keys", "-t", "%12", "-H", "3b"]
+    ]);
+    expect(buildTmuxLiteralSendArgs("%12", ";;")).toEqual([["send-keys", "-t", "%12", "-H", "3b", "3b"]]);
   });
 
   it("closes only an exact listed pane target with kill-pane", () => {
