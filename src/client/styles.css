@@ -1060,6 +1060,59 @@ textarea:focus {
   min-height: 1.5em;
 }
 
+/* Box and pipe tables keep their rows intact and scroll sideways instead of wrapping. */
+.tmux-output-table {
+  position: relative;
+  display: block;
+  max-width: 100%;
+}
+
+.tmux-output-table-scroll {
+  display: block;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  line-height: 1.2;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
+}
+
+/* Tighter rows let box-drawing strokes join up between lines. */
+.tmux-output-table-scroll .tmux-output-line {
+  min-height: 1.2em;
+}
+
+.tmux-output-table::before,
+.tmux-output-table::after {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  width: 28px;
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.tmux-output-table::before {
+  left: 0;
+  background: linear-gradient(to right, var(--surface-output), transparent);
+}
+
+.tmux-output-table::after {
+  right: 0;
+  background: linear-gradient(to left, var(--surface-output), transparent);
+}
+
+.tmux-output-table[data-fade-left]::before,
+.tmux-output-table[data-fade-right]::after {
+  opacity: 1;
+}
+
 .timeline-card a,
 .tmux-output a {
   color: var(--accent);

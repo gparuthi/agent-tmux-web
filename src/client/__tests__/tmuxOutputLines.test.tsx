@@ -33,4 +33,43 @@ describe("TmuxOutputLines", () => {
     expect(dark).toContain("data-tmux-anchor-index=\"2\"");
     expect(dark).toContain("\u00a0");
   });
+
+  it("wraps box tables in a scroll container and leaves prose lines outside it", () => {
+    const output = [
+      "Prose before \u2502 the table.",
+      "  \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2510   ",
+      "  \u2502 a    \u2502 b    \u2502",
+      "  \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2518",
+      "Prose after."
+    ].join("\n");
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} /></pre>);
+    const tableStart = html.indexOf("<span class=\"tmux-output-table\"");
+    const tableEnd = html.indexOf("data-tmux-anchor-index=\"4\"");
+    expect(tableStart).toBeGreaterThan(html.indexOf("Prose before"));
+    expect(tableEnd).toBeGreaterThan(tableStart);
+    expect(html).toContain("data-table-columns=\"17\"");
+    expect(html).toContain("<span class=\"tmux-output-table-scroll\">");
+    expect(html.match(/class="tmux-output-table"/g)).toHaveLength(1);
+    const table = html.slice(tableStart, tableEnd);
+    expect(table).toContain("data-tmux-anchor-index=\"1\"");
+    expect(table).toContain("data-tmux-anchor-index=\"3\"");
+    expect(html.slice(tableEnd)).toContain("Prose after.");
+    expect(table).toContain("\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2510<");
+  });
+
+  it("keeps ANSI styles on table rows and trims only unstyled trailing blanks", () => {
+    const output = [
+      "\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u252c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510",
+      "\u2502 \u001b[1mCheck\u001b[0m  \u2502 Count \u2502   ",
+      "\u2502 \u001b[32mtests\u001b[0m  \u2502 \u001b[44m812   \u001b[0m\u2502",
+      "\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2534\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518"
+    ].join("\n");
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} theme="dark" /></pre>);
+    expect(html).toContain("class=\"tmux-output-table\"");
+    expect(html).toContain("<span style=\"font-weight:650\">Check</span>");
+    expect(html).toContain("<span style=\"color:#7bd88f\">tests</span>");
+    expect(html).toContain("812   </span>");
+    expect(html).toContain("Count \u2502</span>");
+    expect(html).not.toContain("\u001b");
+  });
 });
