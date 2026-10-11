@@ -27,9 +27,9 @@ export type AvailableAgent = AgentDto & {
 };
 
 const AGENT_COMMANDS: Array<Omit<AgentDefinition, "candidates">> = [
+  { id: "claude", label: "Claude Code", command: "claude" },
   { id: "opencode", label: "OpenCode", command: "opencode" },
   { id: "pi", label: "pi", command: "pi" },
-  { id: "claude", label: "Claude Code", command: "claude" },
   // The owner's zsh `codex` function picks the personal CODEX_HOME, so call it by name.
   { id: "codex", label: "Codex", command: "codex", byName: true }
 ];

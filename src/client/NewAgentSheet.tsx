@@ -2,9 +2,7 @@ import { Bot, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { AgentsDto, StartAgentResultDto } from "../shared/api.js";
-import { defaultNewAgentSelection, readApiErrorMessage, resolveNewAgentDirectory } from "./newAgent.js";
-
-export const NEW_AGENT_LAST_AGENT_STORAGE_KEY = "agent-tmux-web.new-agent.last";
+import { clearLegacyNewAgentChoice, defaultNewAgentSelection, readApiErrorMessage, resolveNewAgentDirectory } from "./newAgent.js";
 
 type NewAgentSheetProps = {
   loadAgents: () => Promise<AgentsDto>;
@@ -16,12 +14,16 @@ type NewAgentSheetProps = {
 
 export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, initialAgents = null }: NewAgentSheetProps) {
   const [agents, setAgents] = useState<AgentsDto | null>(initialAgents);
-  const initial = defaultNewAgentSelection(initialAgents, readLastAgent());
+  const initial = defaultNewAgentSelection(initialAgents);
   const [agent, setAgent] = useState(initial.agent);
   const [directory, setDirectory] = useState(initial.directory);
   const [typedDirectory, setTypedDirectory] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    clearLegacyNewAgentChoice(readLocalStorage());
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -30,7 +32,7 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
         return;
       }
       setAgents(loaded);
-      const selection = defaultNewAgentSelection(loaded, readLastAgent());
+      const selection = defaultNewAgentSelection(loaded);
       setAgent((current) => (current && loaded.agents.some((entry) => entry.id === current) ? current : selection.agent));
       setDirectory((current) => current || selection.directory);
     }, (loadError: unknown) => {
@@ -54,7 +56,6 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
     setError("");
     try {
       const result = await startAgent(agent, cwd);
-      writeLastAgent(agent);
       onStarted(result);
     } catch (startError) {
       setError(readApiErrorMessage(startError));
@@ -127,18 +128,10 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
   );
 }
 
-function readLastAgent(): string | null {
+function readLocalStorage(): Storage | null {
   try {
-    return typeof window === "undefined" ? null : window.localStorage.getItem(NEW_AGENT_LAST_AGENT_STORAGE_KEY);
+    return typeof window === "undefined" ? null : window.localStorage;
   } catch {
     return null;
-  }
-}
-
-function writeLastAgent(agent: string): void {
-  try {
-    window.localStorage.setItem(NEW_AGENT_LAST_AGENT_STORAGE_KEY, agent);
-  } catch {
-    // Private browsing can block localStorage; the pick just isn't remembered.
   }
 }

@@ -5,12 +5,25 @@ export function resolveNewAgentDirectory(selected: string, typed: string): strin
   return typed.trim() || selected;
 }
 
-export function defaultNewAgentSelection(agents: AgentsDto | null, lastAgentId?: string | null): { agent: string; directory: string } {
+export const PREFERRED_NEW_AGENT_ID = "claude";
+// Older builds remembered the last-picked agent here; the sheet now always starts on Claude.
+export const LEGACY_NEW_AGENT_LAST_AGENT_STORAGE_KEY = "agent-tmux-web.new-agent.last";
+
+// Claude when it is installed, otherwise the first available agent.
+export function defaultNewAgentSelection(agents: AgentsDto | null): { agent: string; directory: string } {
   const agentIds = agents?.agents.map((agent) => agent.id) ?? [];
   return {
-    agent: lastAgentId && agentIds.includes(lastAgentId) ? lastAgentId : agentIds[0] ?? "",
+    agent: agentIds.includes(PREFERRED_NEW_AGENT_ID) ? PREFERRED_NEW_AGENT_ID : agentIds[0] ?? "",
     directory: agents?.directories[0]?.path ?? ""
   };
+}
+
+export function clearLegacyNewAgentChoice(storage: Pick<Storage, "removeItem"> | null | undefined): void {
+  try {
+    storage?.removeItem(LEGACY_NEW_AGENT_LAST_AGENT_STORAGE_KEY);
+  } catch {
+    // Private browsing can block localStorage; a stale key is harmless.
+  }
 }
 
 // The api() helper throws the raw response body; surface the server's {"error": ...} text.

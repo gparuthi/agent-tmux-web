@@ -49,7 +49,7 @@ const pi: AvailableAgent = { id: "pi", label: "pi", binary: "/Users/me/.local/bi
 describe("agent allowlist", () => {
   it("offers only the four known agents, looked up by fixed name in the install dirs", () => {
     const definitions = buildAgentDefinitions("/Users/me", ["/Users/me/.local/bin", "/opt/homebrew/bin"]);
-    expect(definitions.map((entry) => entry.id)).toEqual(["opencode", "pi", "claude", "codex"]);
+    expect(definitions.map((entry) => entry.id)).toEqual(["claude", "opencode", "pi", "codex"]);
     expect(definitions.find((entry) => entry.id === "pi")?.candidates).toEqual(["/Users/me/.local/bin/pi", "/opt/homebrew/bin/pi"]);
     expect(definitions.filter((entry) => entry.byName).map((entry) => entry.id)).toEqual(["codex"]);
   });
@@ -82,8 +82,8 @@ describe("agent allowlist", () => {
 
     const available = await listAvailableAgents(buildAgentDefinitions(home, [local, brew]));
     expect(available).toEqual([
-      { id: "pi", label: "pi", binary: path.join(local, "pi"), shellCommand: path.join(local, "pi") },
       { id: "claude", label: "Claude Code", binary: path.join(brew, "claude"), shellCommand: path.join(brew, "claude") },
+      { id: "pi", label: "pi", binary: path.join(local, "pi"), shellCommand: path.join(local, "pi") },
       { id: "codex", label: "Codex", binary: path.join(brew, "codex"), shellCommand: "codex" }
     ]);
   });
