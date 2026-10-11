@@ -118,6 +118,7 @@ import {
   TMUX_PANE_VIEWS_STORAGE_KEY,
   TMUX_SESSION_GROUPS_STORAGE_KEY,
   tmuxPaneSelectionOnLoad,
+  tmuxRailPaneForDigit,
   tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
   visibleTmuxRailPanes,
@@ -126,6 +127,7 @@ import {
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
 import { TmuxSessionList } from "./TmuxSessionList.js";
+import { installTmuxRailShortcuts, railShortcutsBlocked } from "./tmuxRailShortcuts.js";
 import {
   insertedCharacter,
   isRawTypedCharacter,
@@ -386,6 +388,7 @@ export function App() {
   const [armedKeyModifier, setArmedKeyModifierState] = useState<KeyStripModifier | null>(null);
   const armedKeyModifierRef = useRef<KeyStripModifier | null>(null);
   const consumeArmedKeyRef = useRef<(typed: string) => boolean>(() => false);
+  const selectRailShortcutRef = useRef<(digit: number) => boolean>(() => false);
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
@@ -683,6 +686,11 @@ export function App() {
       return next;
     });
   }, [selectedTmux]);
+
+  useEffect(() => installTmuxRailShortcuts(window, {
+    blocked: () => railShortcutsBlocked(document),
+    select: (digit) => selectRailShortcutRef.current(digit)
+  }), []);
 
   // iOS soft keyboards report "Unidentified" keydowns, so an armed modifier also intercepts beforeinput.
   useEffect(() => {
@@ -1820,6 +1828,16 @@ export function App() {
     return true;
   }
   consumeArmedKeyRef.current = consumeArmedKey;
+
+  // A number key does what clicking that rail row does.
+  function selectRailShortcut(digit: number): boolean {
+    const pane = tmuxRailPaneForDigit(railTmuxPanes, pinnedTmuxSessionNames, tmuxSessionGroupPreferences, digit);
+    if (pane) {
+      selectTmuxSession(pane);
+    }
+    return Boolean(pane);
+  }
+  selectRailShortcutRef.current = selectRailShortcut;
 
   function sendKeyStripCombo(key: string, modifier: KeyStripModifier | null) {
     const modifierLabel = modifier === "ctrl" ? "Ctrl" : "Alt";

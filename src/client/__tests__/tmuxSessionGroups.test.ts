@@ -20,6 +20,8 @@ import {
   tmuxPaneGroupDetail,
   tmuxPaneSelectionOnLoad,
   tmuxPaneStatus,
+  tmuxRailPaneForDigit,
+  tmuxRailShortcutPanes,
   tmuxSelectionAfterListChange,
   tmuxWindowPaneNames,
   visibleTmuxRailPanes,
@@ -408,5 +410,42 @@ describe("initial pane selection", () => {
     expect(initialTmuxPaneSelection([entries[0]!, entries[2]!], null, view)).toBe("");
     expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("");
     expect(initialTmuxPaneSelection([], "%3", view)).toBe("");
+  });
+});
+
+describe("number-key rail shortcuts", () => {
+  const rail = [
+    pane("%1", "main", { lastInputAtMs: 300, currentCommand: "claude" }),
+    pane("%2", "main", { lastInputAtMs: 200, currentCommand: "codex" }),
+    pane("%3", "gp", { lastInputAtMs: 100, currentCommand: "claude" }),
+    pane("%4", "_hidden", { lastInputAtMs: 900, currentCommand: "claude" }),
+    pane("%5", "gp", { lastInputAtMs: 50, currentCommand: "pi" }),
+    pane("%6", "gp", { lastInputAtMs: 999, currentCommand: "zsh" })
+  ];
+  const agents = filterTmuxAgentPanes(rail, false, "");
+
+  it("maps 1-9 to the visible rows in rail order, skipping collapsed groups and hidden panes", () => {
+    // %4 sits in collapsed _hidden; %6 is a shell the agent filter hides.
+    expect(tmuxRailShortcutPanes(agents, [], [])).toEqual(["%1", "%2", "%3", "%5"]);
+    expect(tmuxRailPaneForDigit(agents, [], [], 1)).toBe("%1");
+    expect(tmuxRailPaneForDigit(agents, [], [], 3)).toBe("%3");
+    expect(tmuxRailPaneForDigit(agents, [], [], 5)).toBe("");
+  });
+
+  it("counts pinned rows first and follows the owner's expanded and collapsed groups", () => {
+    expect(tmuxRailPaneForDigit(agents, ["%5"], [], 1)).toBe("%5");
+    expect(tmuxRailPaneForDigit(agents, ["%5"], [], 2)).toBe("%1");
+    expect(tmuxRailShortcutPanes(agents, [], [["_hidden", false], ["main", true]])).toEqual(["%4", "%3", "%5"]);
+    // A pinned pane from a collapsed group stays reachable.
+    expect(tmuxRailShortcutPanes(agents, ["%2"], [["main", true]])).toEqual(["%2", "%3", "%5"]);
+  });
+
+  it("numbers only the first nine rows and ignores digits outside 1-9", () => {
+    const many = Array.from({ length: 12 }, (_, index) => pane(`%${index + 1}`, "main", { lastInputAtMs: 100 - index }));
+    expect(tmuxRailShortcutPanes(many, [], [])).toHaveLength(9);
+    expect(tmuxRailPaneForDigit(many, [], [], 9)).toBe("%9");
+    expect(tmuxRailPaneForDigit(many, [], [], 10)).toBe("");
+    expect(tmuxRailPaneForDigit(many, [], [], 0)).toBe("");
+    expect(tmuxRailPaneForDigit(many, [], [], 1.5)).toBe("");
   });
 });

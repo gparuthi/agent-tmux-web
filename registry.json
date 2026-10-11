@@ -70,6 +70,7 @@
         { "path": "src/client/tmuxSessionGroups.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionGroups.ts" },
         { "path": "src/client/keyStripCombos.ts", "type": "registry:file", "target": "~/src/client/keyStripCombos.ts" },
         { "path": "src/client/TmuxSessionList.tsx", "type": "registry:file", "target": "~/src/client/TmuxSessionList.tsx" },
+        { "path": "src/client/tmuxRailShortcuts.ts", "type": "registry:file", "target": "~/src/client/tmuxRailShortcuts.ts" },
         { "path": "src/client/TmuxKeyStrip.tsx", "type": "registry:file", "target": "~/src/client/TmuxKeyStrip.tsx" },
         { "path": "src/client/ansi.ts", "type": "registry:file", "target": "~/src/client/ansi.ts" },
         { "path": "src/client/accessToken.ts", "type": "registry:file", "target": "~/src/client/accessToken.ts" },
@@ -364,6 +365,11 @@
           "path": "src/client/TmuxSessionList.tsx",
           "type": "registry:file",
           "target": "~/src/client/TmuxSessionList.tsx"
+        },
+        {
+          "path": "src/client/tmuxRailShortcuts.ts",
+          "type": "registry:file",
+          "target": "~/src/client/tmuxRailShortcuts.ts"
         },
         {
           "path": "src/client/TmuxKeyStrip.tsx",

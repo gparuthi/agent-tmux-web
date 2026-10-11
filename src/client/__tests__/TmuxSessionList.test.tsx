@@ -114,4 +114,20 @@ describe("TmuxSessionList", () => {
     expect(readOnly).toContain("wakes 3h");
     expect(readOnly).not.toContain("tmux-session-wake-button");
   });
+
+  it("hints keys 1-9 on the first nine visible rows only", () => {
+    const html = render("%1", ["%2"]);
+
+    // Pinned %2 first, then main's %1; _hidden is collapsed, so its rows take no number.
+    expect(html.match(/class="tmux-session-shortcut"/g)).toHaveLength(2);
+    expect(html).toMatch(/aria-keyshortcuts="1 Alt\+1"[^>]*title="notes/);
+    expect(html).toMatch(/aria-keyshortcuts="2 Alt\+2"[^>]*title="build agent/);
+    expect(html).toContain('<span aria-hidden="true" class="tmux-session-shortcut">1</span>');
+
+    const many = Array.from({ length: 11 }, (_, index) => pane(`%${index + 1}`, "main", { displayName: `agent ${index + 1}`, lastInputAtMs: 100 - index }));
+    const long = render("%1", [], [], allSeen, many);
+    expect(long.match(/class="tmux-session-shortcut"/g)).toHaveLength(9);
+    expect(long).toContain('class="tmux-session-shortcut">9</span>');
+    expect(long).not.toMatch(/aria-keyshortcuts="[^"]*"[^>]*title="agent 10 /);
+  });
 });

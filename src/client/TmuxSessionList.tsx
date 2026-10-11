@@ -9,6 +9,7 @@ import {
   isTmuxSessionGroupCollapsed,
   tmuxPaneGroupDetail,
   tmuxPaneStatus,
+  tmuxRailShortcutPanes,
   type TmuxPaneViews,
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
@@ -42,6 +43,7 @@ export function TmuxSessionList({
 }: TmuxSessionListProps) {
   const { pinned, groups } = groupTmuxPanes(panes, pinnedNames);
   const unseen = (pane: TmuxSessionDto) => pane.name !== selected && hasUnseenTmuxActivity(paneViews, pane);
+  const shortcuts = new Map(tmuxRailShortcutPanes(panes, pinnedNames, groupPreferences).map((name, index) => [name, index + 1]));
 
   function renderPane(pane: TmuxSessionDto, inGroup: boolean) {
     const status = tmuxPaneStatus(pane);
@@ -49,10 +51,12 @@ export function TmuxSessionList({
     const viewerCount = pane.viewerCount ?? 0;
     const displayName = tmuxPaneDisplayName(pane);
     const wake = pane.snoozedUntilMs ? formatWindowWake(pane.snoozedUntilMs, nowMs) : "";
+    const shortcut = shortcuts.get(pane.name);
     return (
       <div className={`tmux-session-row ${selected === pane.name ? "active" : ""} ${unseen(pane) ? "unseen" : ""}${wake && onWake ? " snoozed" : ""}`} key={pane.name}>
         <button
           aria-current={selected === pane.name ? "true" : undefined}
+          aria-keyshortcuts={shortcut ? `${shortcut} Alt+${shortcut}` : undefined}
           className="tmux-session-select"
           title={`${displayName} (${tmuxPaneDetail(pane)}): ${status.title}${wake ? `, snoozed, ${wake}` : ""}${unseen(pane) ? ", new output" : ""}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
           type="button"
@@ -72,6 +76,7 @@ export function TmuxSessionList({
               {viewerCount > 1 && <span>{viewerCount}</span>}
             </span>
           )}
+          {shortcut && <span aria-hidden="true" className="tmux-session-shortcut">{shortcut}</span>}
         </button>
         {wake && onWake && (
           <button

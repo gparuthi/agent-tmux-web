@@ -88,6 +88,33 @@ export function visibleTmuxRailPanes(
   ];
 }
 
+export const TMUX_RAIL_SHORTCUT_COUNT = 9;
+
+// Keys 1-9 address the rail's first nine rows as shown: pinned, then expanded groups; rows in
+// collapsed groups and panes the agent filter hides take no number.
+export function tmuxRailShortcutPanes(
+  railPanes: TmuxSessionDto[],
+  pinnedNames: string[],
+  preferences: TmuxSessionGroupPreferences
+): string[] {
+  return visibleTmuxRailPanes(railPanes, pinnedNames, preferences)
+    .slice(0, TMUX_RAIL_SHORTCUT_COUNT)
+    .map((entry) => entry.name);
+}
+
+// The pane a digit (1-9) selects, or "" when the rail has fewer rows.
+export function tmuxRailPaneForDigit(
+  railPanes: TmuxSessionDto[],
+  pinnedNames: string[],
+  preferences: TmuxSessionGroupPreferences,
+  digit: number
+): string {
+  if (!Number.isInteger(digit) || digit < 1 || digit > TMUX_RAIL_SHORTCUT_COUNT) {
+    return "";
+  }
+  return tmuxRailShortcutPanes(railPanes, pinnedNames, preferences)[digit - 1] ?? "";
+}
+
 export type TmuxRailView = {
   pinnedNames: string[];
   preferences: TmuxSessionGroupPreferences;
