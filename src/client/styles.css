@@ -38,7 +38,7 @@
   --button-text: #141719;
   --selection-bg: #2f6f5f;
   --dot: #6c7378;
-  --status-working: #31c48d;
+  --status-working: #ffd700;
   --status-blocked: #e7b84b;
   --status-done: #1f8a57;
   --status-idle: #78818d;
@@ -94,7 +94,7 @@
   --button-text: #ffffff;
   --selection-bg: #b7e4d8;
   --dot: #87949d;
-  --status-working: #24a876;
+  --status-working: #c9a400;
   --status-blocked: #d29f2c;
   --status-done: #18744a;
   --status-idle: #6b747f;
@@ -761,7 +761,7 @@ textarea:focus {
   background: var(--dot);
 }
 
-/* Same palette as gpmon's agents panel (xterm-256 42/214/29/244/240). */
+/* Matches the tmux window-tab dots from agent-status (xterm-256 220/214/29/244/240). */
 .tmux-session-status-dot.working {
   background: var(--status-working);
 }
@@ -1518,7 +1518,7 @@ textarea:focus {
 }
 
 .tmux-opencode-sidebar-section.mcp li::first-letter {
-  color: #31c48d;
+  color: var(--status-working);
 }
 
 .tmux-opencode-sidebar-section.todo li:first-child {

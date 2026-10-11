@@ -242,7 +242,9 @@ describe("responsive mobile CSS", () => {
       expect(css).toContain(`.tmux-session-status-dot.${kind}`);
       expect(lightBlock).toContain(`--status-${kind}:`);
     }
-    expect(darkBlock).toContain("--status-working: #31c48d;");
+    expect(darkBlock).toContain("--status-working: #ffd700;");
+    expect(lightBlock).toContain("--status-working: #c9a400;");
+    expect(css).not.toContain("#31c48d");
     expect(darkBlock).toContain("--status-blocked: #e7b84b;");
     expect(darkBlock).toContain("--status-done: #1f8a57;");
     expect(darkBlock).toContain("--status-idle: #78818d;");
