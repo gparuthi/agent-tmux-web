@@ -1,11 +1,12 @@
 import stringWidth from "string-width";
 
-import { stripAnsi } from "./ansi.js";
+import { stripAnsi, type AnsiSegment } from "./ansi.js";
 
 export type TmuxOutputBlock =
   | { kind: "text"; start: number; end: number }
   | { kind: "table"; start: number; end: number; columns: number }
-  | { kind: "rule"; start: number; end: number; rule: TmuxRule };
+  | { kind: "rule"; start: number; end: number; rule: TmuxRule }
+  | { kind: "footer"; start: number; end: number };
 
 // Offsets index the ANSI-stripped line; an empty label has labelStart === labelEnd.
 export type TmuxRule = {
@@ -37,6 +38,8 @@ const HEAVY_STROKE = /[━╍┅┉╸╺]/u;
 const DOUBLE_STROKE = /[═=]/u;
 export const TMUX_RULE_MIN_STROKES = 20;
 export const TMUX_RULE_MIN_STROKE_RATIO = 0.8;
+// Claude's input line opens with ❯ (or a mode marker); older builds used >.
+const PROMPT_LINE = /^\s*[❯›>!#]/u;
 
 export function splitTmuxOutputBlocks(lines: readonly string[]): TmuxOutputBlock[] {
   if (lines.length === 0) {
@@ -81,7 +84,65 @@ export function splitTmuxOutputBlocks(lines: readonly string[]): TmuxOutputBlock
     cursor = table.end;
   }
   if (cursor < lines.length) pushTextBlocks(blocks, plain, cursor, lines.length);
-  return blocks;
+  return markFooter(blocks, plain);
+}
+
+// Lines under the bottom prompt frame (status line, mode, agent list) are the footer.
+function markFooter(blocks: TmuxOutputBlock[], plain: readonly string[]): TmuxOutputBlock[] {
+  let bottom = -1;
+  for (let index = blocks.length - 1; index >= 0; index -= 1) {
+    if (blocks[index]?.kind === "rule") {
+      bottom = index;
+      break;
+    }
+  }
+  const top = blocks[bottom - 2];
+  const prompt = blocks[bottom - 1];
+  if (top?.kind !== "rule" || prompt?.kind !== "text" || !PROMPT_LINE.test(plain[prompt.start] ?? "")) {
+    return blocks;
+  }
+  return blocks.map((block, index) => (index > bottom && block.kind === "text" ? { kind: "footer", start: block.start, end: block.end } : block));
+}
+
+// Right-aligned footer columns sit next to their text: inner runs of 4+ spaces become 2, indentation stays.
+export function collapseFooterSpaces(segments: readonly AnsiSegment[]): AnsiSegment[] {
+  const collapsed: AnsiSegment[] = [];
+  const push = (segment: AnsiSegment) => {
+    if (!segment.text) return;
+    const last = collapsed[collapsed.length - 1];
+    if (last && last.style === segment.style) last.text += segment.text;
+    else collapsed.push({ ...segment });
+  };
+  let leading = true;
+  let run: AnsiSegment[] = [];
+  let runLength = 0;
+  const flushRun = () => {
+    let keep = runLength >= 4 ? 2 : runLength;
+    for (const piece of run) {
+      const text = piece.text.slice(0, keep);
+      keep -= text.length;
+      push({ ...piece, text });
+    }
+    run = [];
+    runLength = 0;
+  };
+  for (const segment of segments) {
+    for (const part of segment.text.split(/( +)/u)) {
+      if (!part) continue;
+      if (!part.startsWith(" ")) {
+        flushRun();
+        leading = false;
+        push({ text: part, style: segment.style });
+      } else if (leading) {
+        push({ text: part, style: segment.style });
+      } else {
+        run.push({ text: part, style: segment.style });
+        runLength += part.length;
+      }
+    }
+  }
+  flushRun();
+  return collapsed;
 }
 
 // Rules only exist outside tables, so box borders stay with their table.

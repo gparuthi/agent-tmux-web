@@ -3,7 +3,7 @@ import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSPr
 import { ansiSegmentStyle, hasAnsi, parseAnsiLines, type AnsiSegment } from "./ansi.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import type { ColorTheme } from "./theme.js";
-import { fitTmuxTable, splitTmuxOutputBlocks, type TmuxRule } from "./tmuxOutputBlocks.js";
+import { collapseFooterSpaces, fitTmuxTable, splitTmuxOutputBlocks, type TmuxRule } from "./tmuxOutputBlocks.js";
 
 type TmuxOutputLinesProps = { output: string; anchors?: boolean; theme?: ColorTheme };
 
@@ -18,23 +18,28 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
   const parsed = useMemo(() => (colored ? parseAnsiLines(output) : null), [colored, output]);
   const blocks = useMemo(() => splitTmuxOutputBlocks(lines), [lines]);
 
-  const renderLine = (index: number, inTable: boolean) => {
+  const renderLine = (index: number, kind: "text" | "table" | "footer") => {
     const anchorProps = {
       "data-tmux-anchor-index": anchors ? index : undefined,
       "data-tmux-scroll-anchor": anchors ? "" : undefined
     };
+    const className = kind === "footer" ? "tmux-output-line tmux-output-footer" : "tmux-output-line";
     if (!parsed) {
-      const line = inTable ? (lines[index] ?? "").trimEnd() : lines[index] ?? "";
+      const raw = lines[index] ?? "";
+      const line = kind === "table"
+        ? raw.trimEnd()
+        : kind === "footer" ? collapseFooterSpaces([{ text: raw, style: {} }]).map((segment) => segment.text).join("") : raw;
       return (
-        <span className="tmux-output-line" {...anchorProps} key={`${index}-${line}`}>
+        <span className={className} {...anchorProps} key={`${index}-${line}`}>
           <LinkifiedText text={line || "\u00a0"} />
         </span>
       );
     }
-    const segments = inTable ? trimTrailingSpace(parsed[index] ?? []) : parsed[index] ?? [];
+    const raw = parsed[index] ?? [];
+    const segments = kind === "table" ? trimTrailingSpace(raw) : kind === "footer" ? collapseFooterSpaces(raw) : raw;
     const text = segments.map((segment) => segment.text).join("");
     return (
-      <span className="tmux-output-line" {...anchorProps} key={`${index}-${text}`}>
+      <span className={className} {...anchorProps} key={`${index}-${text}`}>
         {text === "" ? "\u00a0" : segments.map((segment, segmentIndex) => {
           const style = ansiSegmentStyle(segment.style, theme);
           return style ? (
@@ -90,7 +95,7 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
     }
     const rows: ReactNode[] = [];
     for (let index = block.start; index < block.end; index += 1) {
-      rows.push(renderLine(index, block.kind === "table"));
+      rows.push(renderLine(index, block.kind));
     }
     return block.kind === "table" ? (
       <TmuxOutputTable columns={block.columns} key={`table-${block.start}`}>{rows}</TmuxOutputTable>

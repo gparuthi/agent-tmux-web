@@ -103,4 +103,26 @@ describe("TmuxOutputLines", () => {
     expect(html).toContain(">---<");
     expect(html).not.toContain("--tmux-rule-color");
   });
+
+  it("renders Claude's footer unwrapped with collapsed gaps while prose above keeps wrapping", () => {
+    const output = [
+      `prose  with${" ".repeat(8)}gaps`,
+      `${"\u2500".repeat(174)} atw \u2500`,
+      "\u276f ",
+      "\u2500".repeat(180),
+      `  \u001b[1mbuilder\u001b[0m  Running tests${" ".repeat(120)}\u001b[2m5m 48s \u00b7 \u2193 118.2k tokens\u001b[0m`
+    ].join("\n");
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} theme="dark" /></pre>);
+    expect(html.match(/tmux-output-footer/g)).toHaveLength(1);
+    expect(html).toContain(`<span class="tmux-output-line" data-tmux-anchor-index="0" data-tmux-scroll-anchor="">prose  with${" ".repeat(8)}gaps</span>`);
+    expect(html).toContain("<span class=\"tmux-output-line tmux-output-footer\" data-tmux-anchor-index=\"4\" data-tmux-scroll-anchor=\"\">  <span style=\"font-weight:650\">builder</span>  Running tests  <span style=\"opacity:0.7\">5m 48s");
+    expect(html).not.toContain("\u001b");
+  });
+
+  it("collapses footer gaps without ANSI too", () => {
+    const output = ["\u2500".repeat(40), "> ", "\u2500".repeat(40), `  main${" ".repeat(50)}idle`].join("\n");
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} /></pre>);
+    expect(html).toContain("<span class=\"tmux-output-line tmux-output-footer\" data-tmux-anchor-index=\"3\" data-tmux-scroll-anchor=\"\">  main  idle</span>");
+  });
 });
+

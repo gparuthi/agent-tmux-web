@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { parseAnsiLines, type AnsiSegment } from "../ansi.js";
+
 import {
   TMUX_TABLE_MAX_FIT_RATIO,
   TMUX_TABLE_MIN_FONT_SIZE,
+  collapseFooterSpaces,
   detectTmuxRule,
   fitTmuxTable,
   splitTmuxOutputBlocks,
@@ -244,3 +247,58 @@ describe("detectTmuxRule", () => {
     expect(split(output)).toEqual([{ kind: "table", start: 0, end: 3, columns: 42 }]);
   });
 });
+
+describe("Claude footer", () => {
+  const frame = [`${"─".repeat(174)} atw ─`, "❯ ", "─".repeat(180)];
+  const footer = [
+    "  Opus 5.5 (1M context) (high) ctx:15% $2.291 5h:16% 7d:58%",
+    "  ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents",
+    " ",
+    "  ⏺ main",
+    `  ◯ builder  Running agent-status cargo tests${" ".repeat(120)}5m 48s · ↓ 118.2k tokens`
+  ];
+
+  it("marks the lines under the bottom prompt frame as footer", () => {
+    const output = ["⏺ Done.", "", ...frame, ...footer].join("\n");
+    expect(split(output)).toEqual([
+      { kind: "text", start: 0, end: 2 },
+      { kind: "rule", start: 2, end: 3, rule: expect.objectContaining({ align: "right" }) },
+      { kind: "text", start: 3, end: 4 },
+      { kind: "rule", start: 4, end: 5, rule: expect.objectContaining({ labelStart: 180 }) },
+      { kind: "footer", start: 5, end: 10 }
+    ]);
+  });
+
+  it("uses only the last frame, so earlier rules and a multi-line prompt keep prose above it", () => {
+    const output = ["─".repeat(60), "prose under an old rule", frame[0], "❯ first line", "  second line", frame[2], "  status"].join("\n");
+    const blocks = split(output);
+    expect(blocks.filter((block) => block.kind === "footer")).toEqual([{ kind: "footer", start: 6, end: 7 }]);
+    expect(blocks[1]).toEqual({ kind: "text", start: 1, end: 2 });
+  });
+
+  it("has no footer without a prompt frame", () => {
+    expect(split(["prose", "─".repeat(60), "more prose", "  status  with    gaps"].join("\n")).some((block) => block.kind === "footer")).toBe(false);
+    expect(split(["─".repeat(60), "not a prompt", "─".repeat(60), "after"].join("\n")).some((block) => block.kind === "footer")).toBe(false);
+    expect(split(footer.join("\n"))).toEqual([{ kind: "text", start: 0, end: 5 }]);
+  });
+});
+
+describe("collapseFooterSpaces", () => {
+  const text = (segments: AnsiSegment[]) => segments.map((segment) => segment.text).join("");
+
+  it("collapses inner runs of four or more spaces to two and keeps indentation and short gaps", () => {
+    const line = `    ◯ builder  Reading tests${" ".repeat(90)}53s · ↓ 30.3k tokens${" ".repeat(6)}`;
+    expect(text(collapseFooterSpaces([{ text: line, style: {} }]))).toBe("    ◯ builder  Reading tests  53s · ↓ 30.3k tokens  ");
+    expect(text(collapseFooterSpaces([{ text: "a   b", style: {} }]))).toBe("a   b");
+  });
+
+  it("collapses runs that span ANSI segments and keeps every segment's style", () => {
+    const [segments = []] = parseAnsiLines(`  \u001b[1mbuilder\u001b[0m  Running   \u001b[2m${" ".repeat(40)}5m 48s\u001b[0m`);
+    const collapsed = collapseFooterSpaces(segments);
+    expect(text(collapsed)).toBe("  builder  Running  5m 48s");
+    expect(collapsed.find((segment) => segment.text === "builder")?.style).toEqual({ bold: true });
+    expect(collapsed.find((segment) => segment.text.includes("5m 48s"))?.style).toEqual({ dim: true });
+    expect(text(collapsed)).not.toContain("\u001b");
+  });
+});
+

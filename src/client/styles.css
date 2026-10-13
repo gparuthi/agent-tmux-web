@@ -1120,6 +1120,15 @@ textarea:focus {
   color: transparent;
 }
 
+/* Claude's footer under the prompt frame stays one line per row, clipped instead of wrapped. */
+.tmux-output-footer {
+  overflow: hidden;
+  white-space: pre;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
 .tmux-output-table::before,
 .tmux-output-table::after {
   position: absolute;
