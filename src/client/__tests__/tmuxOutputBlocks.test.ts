@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   TMUX_TABLE_MAX_FIT_RATIO,
   TMUX_TABLE_MIN_FONT_SIZE,
+  detectTmuxRule,
   fitTmuxTable,
   splitTmuxOutputBlocks,
   type TmuxOutputBlock
@@ -183,5 +184,63 @@ describe("fitTmuxTable", () => {
 
   it("does not scale before the view has a width", () => {
     expect(fitTmuxTable({ ...base, available: 0, columns: 169 })).toEqual({ mode: "natural", fontSize: 12, overflow: false });
+  });
+});
+
+describe("detectTmuxRule", () => {
+  const claudeTop = `${"─".repeat(174)} atw ─`;
+
+  it("finds Claude's prompt-frame rule and keeps its session label on the right", () => {
+    expect(detectTmuxRule(claudeTop)).toEqual({ strokeStart: 0, labelStart: 175, labelEnd: 178, align: "right", weight: "light" });
+  });
+
+  it("finds a plain rule with no label", () => {
+    expect(detectTmuxRule("─".repeat(180))).toEqual({ strokeStart: 0, labelStart: 180, labelEnd: 180, align: "left", weight: "light" });
+    expect(detectTmuxRule("-".repeat(40))).not.toBeNull();
+  });
+
+  it("measures an ANSI-coloured rule by its visible text", () => {
+    const rule = `\u001b[38;2;136;136;136m${"─".repeat(30)}\u001b[0m`;
+    expect(detectTmuxRule(rule)).toEqual({ strokeStart: 0, labelStart: 30, labelEnd: 30, align: "left", weight: "light" });
+  });
+
+  it("keeps a label near the left end on the left and reads heavy and double strokes", () => {
+    expect(detectTmuxRule(`─ Worked for 1m 12s ${"─".repeat(160)}`)).toMatchObject({ labelStart: 2, labelEnd: 19, align: "left" });
+    expect(detectTmuxRule("━".repeat(30))).toMatchObject({ weight: "heavy" });
+    expect(detectTmuxRule("═".repeat(30))).toMatchObject({ weight: "double" });
+  });
+
+  it("ignores short dashes in prose and markdown separators", () => {
+    expect(detectTmuxRule("Use the --force flag -- or not.")).toBeNull();
+    expect(detectTmuxRule("---")).toBeNull();
+    expect(detectTmuxRule("─".repeat(19))).toBeNull();
+    expect(detectTmuxRule(`── a much longer label that is mostly words ${"─".repeat(20)}`)).toBeNull();
+    expect(detectTmuxRule(`┌${"─".repeat(40)}┐`)).toBeNull();
+  });
+
+  it("splits rules out of prose but leaves table borders in their table", () => {
+    const output = [
+      "· Elucidating… (14s · ↓ 987 tokens)",
+      "---",
+      claudeTop,
+      "❯ ",
+      "─".repeat(180),
+      `┌${"─".repeat(30)}┐`,
+      `│ cell${" ".repeat(25)}│`,
+      `└${"─".repeat(30)}┘`
+    ].join("\n");
+    expect(split(output)).toEqual([
+      { kind: "text", start: 0, end: 2 },
+      { kind: "rule", start: 2, end: 3, rule: { strokeStart: 0, labelStart: 175, labelEnd: 178, align: "right", weight: "light" } },
+      { kind: "text", start: 3, end: 4 },
+      { kind: "rule", start: 4, end: 5, rule: { strokeStart: 0, labelStart: 180, labelEnd: 180, align: "left", weight: "light" } },
+      { kind: "table", start: 5, end: 8, columns: 32 }
+    ]);
+  });
+
+  it("leaves a labelled border inside a box table to the table", () => {
+    const output = [`── Results ${"─".repeat(31)}`, `│ a${" ".repeat(38)}│`, `└${"─".repeat(40)}┘`].join("\n");
+    expect(detectTmuxRule(output.split("\n")[0] ?? "")).not.toBeNull();
+    expect(split(output)).toEqual([{ kind: "table", start: 0, end: 3, columns: 42 }]);
   });
 });

@@ -1085,6 +1085,41 @@ textarea:focus {
   min-height: 1.2em;
 }
 
+/* Full-width rules draw as one line at any width; only the label is text. */
+.tmux-output-rule {
+  --tmux-rule-stroke: var(--tmux-rule-color, color-mix(in srgb, currentColor 45%, transparent));
+  overflow: hidden;
+  padding: 0 1ch;
+  background: linear-gradient(var(--tmux-rule-stroke), var(--tmux-rule-stroke)) 0 50% / 100% 1px no-repeat;
+  white-space: pre;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.tmux-output-rule[data-rule-align="right"] {
+  text-align: right;
+}
+
+.tmux-output-rule[data-rule-weight="heavy"] {
+  background-size: 100% 2px;
+}
+
+.tmux-output-rule[data-rule-weight="double"] {
+  background:
+    linear-gradient(var(--tmux-rule-stroke), var(--tmux-rule-stroke)) 0 calc(50% - 2px) / 100% 1px no-repeat,
+    linear-gradient(var(--tmux-rule-stroke), var(--tmux-rule-stroke)) 0 calc(50% + 2px) / 100% 1px no-repeat;
+}
+
+.tmux-output-rule-label {
+  padding: 0 1ch;
+  background: var(--surface-output);
+}
+
+.tmux-output-rule-stub {
+  color: transparent;
+}
+
 .tmux-output-table::before,
 .tmux-output-table::after {
   position: absolute;

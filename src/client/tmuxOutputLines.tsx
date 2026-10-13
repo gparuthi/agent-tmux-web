@@ -1,9 +1,9 @@
-import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type UIEvent } from "react";
 
 import { ansiSegmentStyle, hasAnsi, parseAnsiLines, type AnsiSegment } from "./ansi.js";
 import { LinkifiedText } from "./LinkifiedText.js";
 import type { ColorTheme } from "./theme.js";
-import { fitTmuxTable, splitTmuxOutputBlocks } from "./tmuxOutputBlocks.js";
+import { fitTmuxTable, splitTmuxOutputBlocks, type TmuxRule } from "./tmuxOutputBlocks.js";
 
 type TmuxOutputLinesProps = { output: string; anchors?: boolean; theme?: ColorTheme };
 
@@ -47,7 +47,47 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
     );
   };
 
+  const renderRule = (index: number, rule: TmuxRule) => {
+    const anchorProps = {
+      "data-tmux-anchor-index": anchors ? index : undefined,
+      "data-tmux-scroll-anchor": anchors ? "" : undefined
+    };
+    const segments = parsed ? parsed[index] ?? [] : [{ text: lines[index] ?? "", style: {} }];
+    const strokeStyle = segmentAt(segments, rule.strokeStart)?.style;
+    const color = strokeStyle ? ansiSegmentStyle(strokeStyle, theme)?.color : undefined;
+    const label = sliceSegments(segments, rule.labelStart, rule.labelEnd);
+    const labelText = label.map((segment) => segment.text).join("");
+    return (
+      <span
+        className="tmux-output-line tmux-output-rule"
+        data-rule-align={rule.align}
+        data-rule-weight={rule.weight}
+        style={color ? ({ "--tmux-rule-color": color } as CSSProperties) : undefined}
+        {...anchorProps}
+        key={`${index}-rule-${labelText}`}
+      >
+        {labelText ? (
+          <span className="tmux-output-rule-label">
+            {label.map((segment, segmentIndex) => {
+              const style = ansiSegmentStyle(segment.style, theme);
+              return style ? (
+                <span key={segmentIndex} style={style}><LinkifiedText text={segment.text} /></span>
+              ) : (
+                <LinkifiedText key={segmentIndex} text={segment.text} />
+              );
+            })}
+          </span>
+        ) : (
+          <span className="tmux-output-rule-stub">───</span>
+        )}
+      </span>
+    );
+  };
+
   return blocks.map((block) => {
+    if (block.kind === "rule") {
+      return renderRule(block.start, block.rule);
+    }
     const rows: ReactNode[] = [];
     for (let index = block.start; index < block.end; index += 1) {
       rows.push(renderLine(index, block.kind === "table"));
@@ -131,6 +171,29 @@ function measureTableFrame(frame: HTMLElement): TableMetrics {
 
 function sameMetrics(left: TableMetrics, right: TableMetrics): boolean {
   return left.available === right.available && left.charWidth === right.charWidth && left.baseFontSize === right.baseFontSize;
+}
+
+function segmentAt(segments: readonly AnsiSegment[], offset: number): AnsiSegment | undefined {
+  let cursor = 0;
+  for (const segment of segments) {
+    cursor += segment.text.length;
+    if (offset < cursor) return segment;
+  }
+  return undefined;
+}
+
+// Offsets come from the ANSI-stripped line, which is the segments' joined text.
+function sliceSegments(segments: readonly AnsiSegment[], start: number, end: number): AnsiSegment[] {
+  const sliced: AnsiSegment[] = [];
+  let cursor = 0;
+  for (const segment of segments) {
+    const segmentEnd = cursor + segment.text.length;
+    const from = Math.max(start, cursor);
+    const to = Math.min(end, segmentEnd);
+    if (to > from) sliced.push({ ...segment, text: segment.text.slice(from - cursor, to - cursor) });
+    cursor = segmentEnd;
+  }
+  return sliced;
 }
 
 // Trailing blanks would widen the scroll area; keep them when they carry a background.

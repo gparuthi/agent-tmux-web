@@ -72,4 +72,35 @@ describe("TmuxOutputLines", () => {
     expect(html).toContain("Count \u2502</span>");
     expect(html).not.toContain("\u001b");
   });
+
+  it("renders a coloured Claude prompt-frame rule as one line keeping its label and anchor", () => {
+    const grey = "\u001b[38;2;136;136;136m";
+    const output = [
+      "  \u23bf  Tip: Use git worktrees.",
+      `${grey}${"\u2500".repeat(174)} \u001b[1matw\u001b[22m \u2500\u001b[0m`,
+      "\u276f ",
+      `${grey}${"\u2500".repeat(180)}\u001b[0m`
+    ].join("\n");
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} theme="dark" /></pre>);
+    expect(html.match(/class="tmux-output-line tmux-output-rule"/g)).toHaveLength(2);
+    expect(html).not.toContain("\u2500".repeat(4));
+    expect(html).toContain("data-rule-align=\"right\"");
+    expect(html).toContain("--tmux-rule-color:rgb(136, 136, 136)");
+    expect(html).toContain("<span class=\"tmux-output-rule-label\"><span style=\"color:rgb(136, 136, 136);font-weight:650\">atw</span></span>");
+    expect(html).toContain("<span class=\"tmux-output-rule-stub\">\u2500\u2500\u2500</span>");
+    expect(html).toContain("data-tmux-anchor-index=\"1\"");
+    expect(html).toContain("data-tmux-anchor-index=\"3\"");
+    expect(html).toContain("\u276f");
+    expect(html).toContain("Tip: Use git worktrees.");
+  });
+
+  it("renders a plain rule without ANSI and leaves short dashes as text", () => {
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={`a -- b\n---\n${"-".repeat(60)} end ---`} /></pre>);
+    expect(html.match(/tmux-output-rule"/g)).toHaveLength(1);
+    expect(html).toContain("data-rule-align=\"right\"");
+    expect(html).toContain("<span class=\"tmux-output-rule-label\">end</span>");
+    expect(html).toContain(">a -- b<");
+    expect(html).toContain(">---<");
+    expect(html).not.toContain("--tmux-rule-color");
+  });
 });

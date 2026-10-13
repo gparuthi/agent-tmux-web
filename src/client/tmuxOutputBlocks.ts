@@ -4,7 +4,17 @@ import { stripAnsi } from "./ansi.js";
 
 export type TmuxOutputBlock =
   | { kind: "text"; start: number; end: number }
-  | { kind: "table"; start: number; end: number; columns: number };
+  | { kind: "table"; start: number; end: number; columns: number }
+  | { kind: "rule"; start: number; end: number; rule: TmuxRule };
+
+// Offsets index the ANSI-stripped line; an empty label has labelStart === labelEnd.
+export type TmuxRule = {
+  strokeStart: number;
+  labelStart: number;
+  labelEnd: number;
+  align: "left" | "right";
+  weight: "light" | "heavy" | "double";
+};
 
 export type TmuxTableFit = { mode: "natural" | "scaled" | "scroll"; fontSize: number; overflow: boolean };
 
@@ -22,6 +32,11 @@ const HORIZONTAL = /[─━═╌╍┄┅┈┉╴╶╸╺╼╾]/u;
 const ROW_EDGE = /[│┃║╎╏┆┇┊┋├┤┝┥┞┟┠┡┢┣┦┧┨┩┪┫╞╟╠╡╢╣]/u;
 const LEAD_EDGE = /[│┃║╎╏┆┇┊┋]/u;
 const PIPE_SEPARATOR = /^\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)?\|?$/u;
+const RULE_STROKE = /[─━═╌╍┄┅┈┉╴╶╸╺╼╾\-=_‒–—―]/u;
+const HEAVY_STROKE = /[━╍┅┉╸╺]/u;
+const DOUBLE_STROKE = /[═=]/u;
+export const TMUX_RULE_MIN_STROKES = 20;
+export const TMUX_RULE_MIN_STROKE_RATIO = 0.8;
 
 export function splitTmuxOutputBlocks(lines: readonly string[]): TmuxOutputBlock[] {
   if (lines.length === 0) {
@@ -57,7 +72,7 @@ export function splitTmuxOutputBlocks(lines: readonly string[]): TmuxOutputBlock
   const blocks: TmuxOutputBlock[] = [];
   let cursor = 0;
   for (const table of tables) {
-    if (table.start > cursor) blocks.push({ kind: "text", start: cursor, end: table.start });
+    if (table.start > cursor) pushTextBlocks(blocks, plain, cursor, table.start);
     let columns = 0;
     for (let line = table.start; line < table.end; line += 1) {
       columns = Math.max(columns, stringWidth(plain[line] ?? ""));
@@ -65,8 +80,61 @@ export function splitTmuxOutputBlocks(lines: readonly string[]): TmuxOutputBlock
     blocks.push({ kind: "table", start: table.start, end: table.end, columns });
     cursor = table.end;
   }
-  if (cursor < lines.length) blocks.push({ kind: "text", start: cursor, end: lines.length });
+  if (cursor < lines.length) pushTextBlocks(blocks, plain, cursor, lines.length);
   return blocks;
+}
+
+// Rules only exist outside tables, so box borders stay with their table.
+function pushTextBlocks(blocks: TmuxOutputBlock[], plain: readonly string[], start: number, end: number): void {
+  let textStart = start;
+  for (let index = start; index < end; index += 1) {
+    const rule = detectTmuxRule(plain[index] ?? "");
+    if (!rule) continue;
+    if (index > textStart) blocks.push({ kind: "text", start: textStart, end: index });
+    blocks.push({ kind: "rule", start: index, end: index + 1, rule });
+    textStart = index + 1;
+  }
+  if (end > textStart) blocks.push({ kind: "text", start: textStart, end });
+}
+
+// A rule is a long horizontal stroke run, optionally carrying a short label such as Claude's session name.
+export function detectTmuxRule(line: string): TmuxRule | null {
+  const plain = stripAnsi(line);
+  const trimmedEnd = plain.trimEnd();
+  const strokeStart = trimmedEnd.length - trimmedEnd.trimStart().length;
+  const first = trimmedEnd[strokeStart] ?? "";
+  const last = trimmedEnd[trimmedEnd.length - 1] ?? "";
+  if (!RULE_STROKE.test(first) || !RULE_STROKE.test(last)) {
+    return null;
+  }
+  let strokes = 0;
+  let visible = 0;
+  let heavy = 0;
+  let double = 0;
+  let labelStart = -1;
+  let labelEnd = -1;
+  let offset = strokeStart;
+  for (const char of trimmedEnd.slice(strokeStart)) {
+    if (RULE_STROKE.test(char)) {
+      strokes += 1;
+      if (HEAVY_STROKE.test(char)) heavy += 1;
+      if (DOUBLE_STROKE.test(char)) double += 1;
+    } else if (!/\s/u.test(char)) {
+      if (labelStart < 0) labelStart = offset;
+      labelEnd = offset + char.length;
+    }
+    if (!/\s/u.test(char)) visible += 1;
+    offset += char.length;
+  }
+  if (strokes < TMUX_RULE_MIN_STROKES || strokes / visible < TMUX_RULE_MIN_STROKE_RATIO) {
+    return null;
+  }
+  const weight = heavy * 2 > strokes ? "heavy" : double * 2 > strokes ? "double" : "light";
+  if (labelStart < 0) {
+    return { strokeStart, labelStart: trimmedEnd.length, labelEnd: trimmedEnd.length, align: "left", weight };
+  }
+  const align = trimmedEnd.length - labelEnd < labelStart - strokeStart ? "right" : "left";
+  return { strokeStart, labelStart, labelEnd, align, weight };
 }
 
 function classifyTableLine(line: string): LineKind {
