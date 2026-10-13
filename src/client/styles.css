@@ -39,7 +39,7 @@
   --selection-bg: #2f6f5f;
   --dot: #6c7378;
   --status-working: #ffd700;
-  --status-blocked: #e7b84b;
+  --status-blocked: #ff5f1f;
   --status-done: #1f8a57;
   --status-idle: #78818d;
   --status-unknown: #5a6066;
@@ -95,7 +95,7 @@
   --selection-bg: #b7e4d8;
   --dot: #87949d;
   --status-working: #c9a400;
-  --status-blocked: #d29f2c;
+  --status-blocked: #d9480f;
   --status-done: #18744a;
   --status-idle: #6b747f;
   --status-unknown: #9aa4ac;

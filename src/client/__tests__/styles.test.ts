@@ -245,7 +245,11 @@ describe("responsive mobile CSS", () => {
     expect(darkBlock).toContain("--status-working: #ffd700;");
     expect(lightBlock).toContain("--status-working: #c9a400;");
     expect(css).not.toContain("#31c48d");
-    expect(darkBlock).toContain("--status-blocked: #e7b84b;");
+    // Blocked is orange-red so it never reads like the yellow working dot.
+    expect(darkBlock).toContain("--status-blocked: #ff5f1f;");
+    expect(lightBlock).toContain("--status-blocked: #d9480f;");
+    expect(css).not.toContain("#e7b84b");
+    expect(css).not.toContain("#d29f2c");
     expect(darkBlock).toContain("--status-done: #1f8a57;");
     expect(darkBlock).toContain("--status-idle: #78818d;");
     expect(extractBalancedCssBlock(css, ".tmux-session-status-dot.unknown").text).toContain("background: transparent;");
