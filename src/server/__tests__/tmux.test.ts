@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { access, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { access, mkdir, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -911,19 +911,26 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
   const savedTmuxTmpdir = process.env.TMUX_TMPDIR;
   const savedTmux = process.env.TMUX;
   let socketDir = "";
+  let socketPath = "";
+  // Every direct tmux call names the private socket, so a leaked TMUX can never aim one at the live server.
+  const testTmux = (args: string[]) => execFileAsync("tmux", ["-S", socketPath, ...args]);
 
   beforeAll(async () => {
-    // Private socket dir so the test never touches the developer's tmux server.
-    socketDir = await mkdtemp(path.join(tmpdir(), "atw-tmux-"));
+    // Private socket dir so the code under test never touches the developer's tmux server.
+    socketDir = await realpath(await mkdtemp(path.join(tmpdir(), "atw-tmux-")));
+    socketPath = path.join(socketDir, `tmux-${process.getuid?.() ?? 0}`, "default");
+    await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o700 });
     process.env.TMUX_TMPDIR = socketDir;
     delete process.env.TMUX;
-    await execFileAsync("tmux", ["new-session", "-d", "-s", "atwtest", "-x", "120", "-y", "40", "sh"]);
-    await execFileAsync("tmux", ["split-window", "-t", "atwtest", "sh"]);
-    await execFileAsync("tmux", ["new-session", "-d", "-t", "atwtest", "-s", "atw-raw-test"]);
+    await testTmux(["new-session", "-d", "-s", "atwtest", "-x", "120", "-y", "40", "sh"]);
+    const { stdout } = await execFileAsync("tmux", ["display-message", "-p", "-t", "atwtest", "#{socket_path}"]);
+    expect(stdout.trim()).toBe(socketPath);
+    await testTmux(["split-window", "-t", "atwtest", "sh"]);
+    await testTmux(["new-session", "-d", "-t", "atwtest", "-s", "atw-raw-test"]);
   });
 
   afterAll(async () => {
-    await execFileAsync("tmux", ["kill-server"]).catch(() => undefined);
+    if (socketPath) await testTmux(["kill-server"]).catch(() => undefined);
     if (savedTmuxTmpdir === undefined) {
       delete process.env.TMUX_TMPDIR;
     } else {
@@ -974,8 +981,8 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
   });
 
   it("closes one pane and leaves its sibling running", async () => {
-    await execFileAsync("tmux", ["new-session", "-d", "-s", "atwclose", "sh"]);
-    await execFileAsync("tmux", ["split-window", "-t", "atwclose", "sh"]);
+    await testTmux(["new-session", "-d", "-s", "atwclose", "sh"]);
+    await testTmux(["split-window", "-t", "atwclose", "sh"]);
     const before = (await listTmuxSessions()).filter((entry) => entry.session === "atwclose");
     expect(before).toHaveLength(2);
     const victim = resolveClosableTmuxPane(await listTmuxSessions(), before[1]!.name);

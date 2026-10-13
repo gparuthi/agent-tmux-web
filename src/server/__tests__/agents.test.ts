@@ -1,5 +1,5 @@
 import { execFile, spawnSync } from "node:child_process";
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, utimes, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -220,18 +220,23 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
   const savedTmuxTmpdir = process.env.TMUX_TMPDIR;
   const savedTmux = process.env.TMUX;
   let socketDir = "";
+  let socketPath = "";
   let workDir = "";
+  // Every direct tmux call names the private socket, so a leaked TMUX can never aim one at the live server.
+  const testTmux = (args: string[]) => execFileAsync("tmux", ["-S", socketPath, ...args]);
 
   beforeAll(async () => {
-    // Private socket dir so the test never touches the developer's tmux server.
-    socketDir = await mkdtemp(path.join(tmpdir(), "atw-agent-tmux-"));
+    // Private socket dir so the code under test never touches the developer's tmux server.
+    socketDir = await realpath(await mkdtemp(path.join(tmpdir(), "atw-agent-tmux-")));
+    socketPath = path.join(socketDir, `tmux-${process.getuid?.() ?? 0}`, "default");
     workDir = await mkdtemp(path.join(tmpdir(), "atw-agent-work-"));
+    await mkdir(path.dirname(socketPath), { recursive: true, mode: 0o700 });
     process.env.TMUX_TMPDIR = socketDir;
     delete process.env.TMUX;
   });
 
   afterAll(async () => {
-    await execFileAsync("tmux", ["kill-server"]).catch(() => undefined);
+    if (socketPath) await testTmux(["kill-server"]).catch(() => undefined);
     if (savedTmuxTmpdir === undefined) {
       delete process.env.TMUX_TMPDIR;
     } else {
@@ -260,7 +265,9 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
     expect(first.pane).toMatch(/^%\d+$/);
     expect(second.pane).not.toBe(first.pane);
 
-    const { stdout } = await execFileAsync("tmux", ["list-panes", "-t", "=main", "-s", "-F", "#{pane_id}\t#{window_name}"]);
+    const { stdout: socket } = await execFileAsync("tmux", ["display-message", "-p", "-t", first.pane, "#{socket_path}"]);
+    expect(socket.trim()).toBe(socketPath);
+    const { stdout } = await testTmux(["list-panes", "-t", "=main", "-s", "-F", "#{pane_id}\t#{window_name}"]);
     expect(stdout.trim().split("\n")).toEqual([`${first.pane}\tpi:my-project`, `${second.pane}\tpi:${path.basename(workDir)}`]);
 
     let recorded = "";
