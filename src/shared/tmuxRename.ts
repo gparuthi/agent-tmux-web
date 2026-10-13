@@ -4,6 +4,7 @@ export const TMUX_RENAME_COMMANDS: Readonly<Record<string, string>> = {
   codex: "/rename",
   // Pi has no /rename; /name <name> sets its session display name.
   pi: "/name"
+  // hax (v0.6.0) has no command to name a session, so it is left out.
 };
 
 export const TMUX_RENAME_MAX_LENGTH = 100;

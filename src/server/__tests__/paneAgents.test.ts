@@ -36,6 +36,10 @@ const PS_FIXTURE = [
   " 5101  1559 -zsh",
   " 5102  5101 node --no-warnings /Users/me/work/site/server.js",
   " 6001  1559 zsh -ic codex resume 02b2; exec zsh",
+  // hax is a native binary; the shell running its bash tool is not the agent.
+  " 7001  1559 -zsh",
+  " 7002  7001 /opt/homebrew/bin/hax --provider=codex",
+  " 7003  7002 /bin/bash -c sleep 8; ls",
   ""
 ].join("\n");
 
@@ -59,6 +63,14 @@ describe("pane agents from the process tree", () => {
 
   it("follows pi through its symlinked launcher to the node script", () => {
     expect(findProcessTreeAgent(table, 3001)).toBe("pi");
+  });
+
+  it("finds hax by its binary name", () => {
+    expect(findProcessTreeAgent(table, 7001)).toBe("hax");
+    expect(processArgsAgent("hax -c")).toBe("hax");
+    // Ctrl-T opens the transcript in less; the tree still names the pane hax.
+    expect(detectTmuxPaneAgents([{ name: "%9", paneId: "%9", panePid: 7001, currentCommand: "less" }], table))
+      .toEqual(new Map([["%9", "hax"]]));
   });
 
   it("reads the script of a bun run", () => {
@@ -93,10 +105,11 @@ describe("pane agents from the process tree", () => {
       { name: "dk--box--%3", paneId: "%3", panePid: 22974, currentCommand: "node" },
       { name: "dk--box--%4", paneId: "%4", panePid: 1763, currentCommand: "2.1.289" },
       { name: "%5", paneId: "%5", panePid: 3001, currentCommand: "pi" },
-      { name: "%6", paneId: "%6", panePid: 5001, currentCommand: "zsh" }
+      { name: "%6", paneId: "%6", panePid: 5001, currentCommand: "zsh" },
+      { name: "dk--box--%7", paneId: "%7", panePid: 7001, currentCommand: "hax" }
     ];
-    expect(detectTmuxPaneAgents(panes, table)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"]]));
-    expect(detectTmuxPaneAgents(panes, null)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"]]));
+    expect(detectTmuxPaneAgents(panes, table)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"], ["dk--box--%7", "hax"]]));
+    expect(detectTmuxPaneAgents(panes, null)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"], ["dk--box--%7", "hax"]]));
   });
 });
 

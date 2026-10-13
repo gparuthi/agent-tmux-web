@@ -8,6 +8,9 @@ describe("tmux pane agents", () => {
     expect(tmuxPaneAgent("codex")).toBe("codex");
     expect(tmuxPaneAgent("/opt/homebrew/bin/opencode")).toBe("opencode");
     expect(tmuxPaneAgent("pi")).toBe("pi");
+    expect(tmuxPaneAgent("hax")).toBe("hax");
+    expect(tmuxPaneAgent("/opt/homebrew/bin/hax")).toBe("hax");
+    expect(tmuxPaneAgent("haxe")).toBeNull();
     expect(tmuxPaneAgent("zsh")).toBeNull();
     expect(tmuxPaneAgent("gpmonv2")).toBeNull();
     expect(tmuxPaneAgent(undefined)).toBeNull();

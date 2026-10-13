@@ -1,4 +1,4 @@
-export const TMUX_AGENT_COMMANDS = ["claude", "codex", "opencode", "pi"];
+export const TMUX_AGENT_COMMANDS = ["claude", "codex", "opencode", "pi", "hax"];
 
 export function displayTmuxPaneCommand(command: string | undefined): string {
   const trimmed = command?.trim() ?? "";

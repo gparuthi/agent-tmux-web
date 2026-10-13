@@ -15,7 +15,7 @@ describe("tmux rename gating", () => {
     expect(tmuxRenameCommand("claude")).toBe("/rename");
     expect(tmuxRenameCommand("codex")).toBe("/rename");
     expect(tmuxRenameCommand("pi")).toBe("/name");
-    for (const agent of ["opencode", "zsh", "", "constructor", "toString", "__proto__", null, undefined]) {
+    for (const agent of ["opencode", "hax", "zsh", "", "constructor", "toString", "__proto__", null, undefined]) {
       expect(supportsTmuxRename(agent), String(agent)).toBe(false);
     }
   });
@@ -24,6 +24,7 @@ describe("tmux rename gating", () => {
     expect(supportsTmuxRename(tmuxEntryAgent({ agent: "codex", currentCommand: "node" }))).toBe(true);
     expect(supportsTmuxRename(tmuxEntryAgent({ currentCommand: "2.1.294" }))).toBe(true);
     expect(supportsTmuxRename(tmuxEntryAgent({ currentCommand: "opencode" }))).toBe(false);
+    expect(supportsTmuxRename(tmuxEntryAgent({ currentCommand: "hax" }))).toBe(false);
     expect(supportsTmuxRename(tmuxEntryAgent({ currentCommand: "zsh" }))).toBe(false);
   });
 

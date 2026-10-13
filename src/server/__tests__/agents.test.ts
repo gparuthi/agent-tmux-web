@@ -47,9 +47,10 @@ afterEach(async () => {
 const pi: AvailableAgent = { id: "pi", label: "pi", binary: "/Users/me/.local/bin/pi", shellCommand: "/Users/me/.local/bin/pi" };
 
 describe("agent allowlist", () => {
-  it("offers only the four known agents, looked up by fixed name in the install dirs", () => {
+  it("offers only the five known agents, looked up by fixed name in the install dirs", () => {
     const definitions = buildAgentDefinitions("/Users/me", ["/Users/me/.local/bin", "/opt/homebrew/bin"]);
-    expect(definitions.map((entry) => entry.id)).toEqual(["claude", "opencode", "pi", "codex"]);
+    expect(definitions.map((entry) => entry.id)).toEqual(["claude", "hax", "opencode", "pi", "codex"]);
+    expect(definitions.find((entry) => entry.id === "hax")?.candidates).toEqual(["/Users/me/.local/bin/hax", "/opt/homebrew/bin/hax"]);
     expect(definitions.find((entry) => entry.id === "pi")?.candidates).toEqual(["/Users/me/.local/bin/pi", "/opt/homebrew/bin/pi"]);
     expect(definitions.filter((entry) => entry.byName).map((entry) => entry.id)).toEqual(["codex"]);
   });
@@ -77,12 +78,14 @@ describe("agent allowlist", () => {
     await makeExecutable(path.join(brew, "pi"));
     await makeExecutable(path.join(brew, "codex"));
     await makeExecutable(path.join(brew, "claude"));
+    await makeExecutable(path.join(brew, "hax"));
     // A directory with an agent's name is not an install.
     await mkdir(path.join(local, "claude"));
 
     const available = await listAvailableAgents(buildAgentDefinitions(home, [local, brew]));
     expect(available).toEqual([
       { id: "claude", label: "Claude Code", binary: path.join(brew, "claude"), shellCommand: path.join(brew, "claude") },
+      { id: "hax", label: "hax", binary: path.join(brew, "hax"), shellCommand: path.join(brew, "hax") },
       { id: "pi", label: "pi", binary: path.join(local, "pi"), shellCommand: path.join(local, "pi") },
       { id: "codex", label: "Codex", binary: path.join(brew, "codex"), shellCommand: "codex" }
     ]);
