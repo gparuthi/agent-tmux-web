@@ -71,6 +71,7 @@ import {
 } from "./uploads.js";
 import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
+import { createTmuxSendRouter, DEFAULT_TMUX_SEND_QUEUE_FILE, TmuxSendQueue, toTmuxQueuedMessageDto } from "./tmuxSendQueue.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
 import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
@@ -123,6 +124,18 @@ const tmuxWatch = new TmuxWatchStore({
       console.error(`tmux watch failed for ${session}`, error);
     }
   }
+});
+// Holds text for agents that drop input typed mid-turn (hax) until agent-status shows the turn ended.
+const tmuxSendQueue = new TmuxSendQueue({
+  filePath: process.env.AGENT_TMUX_WEB_SEND_QUEUE_FILE || DEFAULT_TMUX_SEND_QUEUE_FILE,
+  readRows: () => agentRowsCache.rows(),
+  typeText: sendTmuxText,
+  onDelivered: (message) => {
+    if (message.enter) {
+      tmuxWatch.startWatch(message.target, message.label ?? "Tmux task");
+    }
+  },
+  onError: (error) => console.error("tmux send queue failed", error)
 });
 const jsonBodyParser = express.json({ limit: jsonBodyLimit });
 
@@ -335,9 +348,11 @@ app.post("/api/tmux/destroy", asyncHandler(async (req, res) => {
   }
   await destroyTmuxSession(session);
   tmuxWatch.cancelWatch(requested);
+  tmuxSendQueue.clearTarget(requested);
   for (const entry of entries) {
     if (entry.session === session) {
       tmuxWatch.cancelWatch(entry.name);
+      tmuxSendQueue.clearTarget(entry.name);
     }
   }
   res.json({
@@ -350,6 +365,7 @@ app.post("/api/tmux/close-pane", asyncHandler(async (req, res) => {
   const entry = resolveClosableTmuxPane(await listTmuxSessions(), body.pane);
   await closeTmuxPane(entry.name);
   tmuxWatch.cancelWatch(entry.name);
+  tmuxSendQueue.clearTarget(entry.name);
   res.json({
     data: await listTmuxSessionsWithStatus()
   });
@@ -407,21 +423,14 @@ app.post("/api/tmux/open-tool", asyncHandler(async (req, res) => {
   res.json({ ok: true, session, ...capture } satisfies TmuxCaptureDto & { ok: true });
 }));
 
-app.post("/api/tmux/send", asyncHandler(async (req, res) => {
-  const body = req.body as Record<string, unknown>;
-  const session = requireString(body.session, "session");
-  const enter = body.enter !== false;
-  tmuxLastInput.record(session);
-  await sendTmuxText(
-    session,
-    requireString(body.text, "text"),
-    enter,
-    enter ? await resolveTmuxSubmitKey(session, body.submitKey) : "enter"
-  );
-  if (enter) {
-    tmuxWatch.startWatch(session, stringOrNull(body.label) ?? "Tmux task");
+app.use(createTmuxSendRouter({
+  queue: tmuxSendQueue,
+  resolveSubmitKey: resolveTmuxSubmitKey,
+  sendKey: sendTmuxKey,
+  onInput: (session) => tmuxLastInput.record(session),
+  onSubmitted: (session, label) => {
+    tmuxWatch.startWatch(session, label ?? "Tmux task");
   }
-  res.json({ ok: true });
 }));
 
 app.post("/api/tmux/interrupt", asyncHandler(async (req, res) => {
@@ -432,14 +441,6 @@ app.post("/api/tmux/interrupt", asyncHandler(async (req, res) => {
   tmuxWatch.cancelWatch(session);
   const capture = await captureTmuxPaneView(session, TMUX_CAPTURE_HISTORY_LINES);
   res.json({ ok: true, session, ...capture } satisfies TmuxCaptureDto & { ok: true });
-}));
-
-app.post("/api/tmux/keys", asyncHandler(async (req, res) => {
-  const body = req.body as Record<string, unknown>;
-  const session = requireString(body.session, "session");
-  await sendTmuxKey(session, typeof body.key === "string" ? body.key : "");
-  tmuxLastInput.record(session);
-  res.json({ ok: true });
 }));
 
 app.post("/api/tmux/watch", asyncHandler(async (req, res) => {
@@ -517,9 +518,11 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       local ? promptTimes.get(session.name) : undefined
     );
     const agent = paneAgents.get(session.name);
+    const queued = tmuxSendQueue.list(session.name).map(toTmuxQueuedMessageDto);
     return {
       ...sessionData,
       ...(agent ? { agent, label: buildTmuxPaneAgentLabel(session, agent) } : {}),
+      ...(queued.length > 0 ? { queued } : {}),
       ...(lastInputAtMs ? { lastInputAtMs } : {}),
       // Raw browsers attach through grouped sessions, so add other browsers' raw views explicitly.
       viewerCount: Math.max(0, clientCount + totalRawTerminalClientCount(session.name) - rawTerminalClientCount(excludedBrowserClientId, session.name)),
@@ -788,6 +791,8 @@ server.listen(port, bindHost, async () => {
   console.log(`agent-tmux-web listening on http://${bindHost}:${port}`);
   startUploadCleanup();
   void tmuxLastInput.load();
+  void tmuxSendQueue.load().catch((error: unknown) => console.error("Failed to load the tmux send queue", error));
+  tmuxSendQueue.start();
   void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
   setInterval(() => void tmuxAutoZoom.sweep().catch(() => undefined), AUTO_ZOOM_SWEEP_MS).unref();

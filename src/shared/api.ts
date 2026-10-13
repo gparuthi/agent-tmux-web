@@ -47,6 +47,21 @@ export type TmuxSessionDto = {
   status?: TmuxSessionStatusDto;
   // Wake deadline of a window tmux-hide-window snoozed into the _hidden session.
   snoozedUntilMs?: number;
+  // Messages atw holds for an agent that drops input typed mid-turn, oldest first.
+  queued?: TmuxQueuedMessageDto[];
+};
+
+export type TmuxQueuedMessageDto = {
+  id: string;
+  text: string;
+  agent: string;
+  queuedAtMs: number;
+};
+
+// POST /api/tmux/send: queued is set when atw held the text instead of typing it.
+export type TmuxSendResultDto = {
+  ok: true;
+  queued?: TmuxQueuedMessageDto;
 };
 
 // A tpal palette action atw can run without a tmux client (tpal list --json, needsClient false).

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { displayTmuxPaneCommand, tmuxEntryAgent, tmuxPaneAgent } from "../tmuxAgents.js";
+import { displayTmuxPaneCommand, tmuxAgentDropsTypeAhead, tmuxEntryAgent, tmuxPaneAgent } from "../tmuxAgents.js";
 
 describe("tmux pane agents", () => {
   it("recognises agent CLIs from tmux's pane_current_command", () => {
@@ -21,5 +21,16 @@ describe("tmux pane agents", () => {
     expect(tmuxEntryAgent({ agent: "codex", currentCommand: "node" })).toBe("codex");
     expect(tmuxEntryAgent({ currentCommand: "2.1.289" })).toBe("claude");
     expect(tmuxEntryAgent({ currentCommand: "node" })).toBeNull();
+  });
+
+  it("flags only hax as dropping input typed while a turn runs", () => {
+    expect(tmuxAgentDropsTypeAhead("hax")).toBe(true);
+    expect(tmuxAgentDropsTypeAhead("HAX")).toBe(true);
+    for (const agent of ["claude", "codex", "pi", "opencode"]) {
+      expect(tmuxAgentDropsTypeAhead(agent)).toBe(false);
+    }
+    expect(tmuxAgentDropsTypeAhead(null)).toBe(false);
+    expect(tmuxAgentDropsTypeAhead(undefined)).toBe(false);
+    expect(tmuxAgentDropsTypeAhead("")).toBe(false);
   });
 });

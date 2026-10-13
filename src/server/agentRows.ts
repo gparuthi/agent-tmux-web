@@ -82,13 +82,23 @@ function snapshotAgeMs(snapshot: AgentRowsSnapshot | null, nowMs: number): numbe
   return snapshot ? nowMs - snapshot.epochSec * 1000 : Number.POSITIVE_INFINITY;
 }
 
-// Statuses by pane id, or none at all when the snapshot is missing, from the future or stale.
-export function agentRowStatuses(snapshot: AgentRowsSnapshot | null, nowMs: number): Map<string, TmuxSessionStatusDto> {
+// The snapshot, or null when it is missing, from the future or stale.
+export function freshAgentRows(snapshot: AgentRowsSnapshot | null, nowMs: number): AgentRowsSnapshot | null {
   const nowSec = Math.floor(nowMs / 1000);
   if (!snapshot || snapshot.epochSec > nowSec || (nowSec - snapshot.epochSec) * 1000 > AGENT_ROWS_STALE_AFTER_MS) {
+    return null;
+  }
+  return snapshot;
+}
+
+// Statuses by pane id, or none at all when the snapshot is missing, from the future or stale.
+export function agentRowStatuses(snapshot: AgentRowsSnapshot | null, nowMs: number): Map<string, TmuxSessionStatusDto> {
+  const fresh = freshAgentRows(snapshot, nowMs);
+  if (!fresh) {
     return new Map();
   }
-  return new Map([...snapshot.rows].map(([paneId, row]) => [paneId, agentRowStatus(row, nowSec)]));
+  const nowSec = Math.floor(nowMs / 1000);
+  return new Map([...fresh.rows].map(([paneId, row]) => [paneId, agentRowStatus(row, nowSec)]));
 }
 
 export function agentRowStatus(row: AgentRow, nowSec: number): TmuxSessionStatusDto {
@@ -137,13 +147,23 @@ export class AgentRowsCache {
   ) {}
 
   async statuses(): Promise<Map<string, TmuxSessionStatusDto>> {
+    await this.reread();
+    return agentRowStatuses(this.snapshot, this.now());
+  }
+
+  // Rows with their kind, state and idle_since, or null while agent-status is not refreshing.
+  async rows(): Promise<AgentRowsSnapshot | null> {
+    await this.reread();
+    return freshAgentRows(this.snapshot, this.now());
+  }
+
+  private async reread(): Promise<void> {
     if (this.now() - this.readAtMs >= REREAD_INTERVAL_MS) {
       this.reading ??= this.read().finally(() => {
         this.reading = null;
       });
       await this.reading;
     }
-    return agentRowStatuses(this.snapshot, this.now());
   }
 
   private maybeKick(): void {

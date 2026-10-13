@@ -54,13 +54,15 @@ import {
   type TmuxActionsDto,
   type TmuxCaptureDto,
   type TmuxRenameResultDto,
+  type TmuxSendResultDto,
   type TmuxSessionDto,
   type TmuxWatchEvent,
   type UploadedFileDto
 } from "../shared/api.js";
 import { describeThreadItem, type UiEventDescription } from "../shared/codexEvents.js";
-import { tmuxEntryAgent } from "../shared/tmuxAgents.js";
+import { tmuxAgentDropsTypeAhead, tmuxEntryAgent } from "../shared/tmuxAgents.js";
 import { supportsTmuxRename, tmuxRenamePrefill } from "../shared/tmuxRename.js";
+import { TmuxQueuedMessages } from "./TmuxQueuedMessages.js";
 import {
   filterSlashCommands,
   parseSlashCommand,
@@ -471,6 +473,8 @@ export function App() {
   const selectedTmuxLocalPane = Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
   const tmuxActionsEntry = tmuxActionsTarget ? findTmuxPane(tmuxSessions, tmuxActionsTarget) : undefined;
   const selectedTmuxAgent = selectedTmuxEntry ? tmuxEntryAgent(selectedTmuxEntry) : null;
+  // The server holds text for these agents mid-turn, so it must not go through the raw terminal.
+  const selectedTmuxHoldsTypeAhead = tmuxAgentDropsTypeAhead(selectedTmuxAgent);
   // Rename types the agent's own slash command, so only panes running an agent that has one.
   const selectedTmuxRenamable = !demoMode && Boolean(selectedTmuxEntry?.paneId) && supportsTmuxRename(selectedTmuxAgent);
   const renameSessionEntry = renameSession ? findTmuxPane(tmuxSessions, renameSession.target) : undefined;
@@ -1348,7 +1352,7 @@ export function App() {
       return;
     }
 
-    if (sendTmuxViaTerminal(session, text)) {
+    if (!selectedTmuxHoldsTypeAhead && sendTmuxViaTerminal(session, text)) {
       setTmuxInput("");
       if (tmuxInputRef.current) {
         tmuxInputRef.current.value = "";
@@ -1358,7 +1362,7 @@ export function App() {
       return;
     }
 
-    await api("/api/tmux/send", {
+    const result = await api<TmuxSendResultDto>("/api/tmux/send", {
       method: "POST",
       body: JSON.stringify({ session, text, enter: true })
     });
@@ -1367,8 +1371,18 @@ export function App() {
       tmuxInputRef.current.value = "";
     }
     resizeTmuxInput(tmuxInputRef.current);
+    if (result.queued) {
+      setTerminalStatus(`queued for ${result.queued.agent}; will send when it finishes`);
+      void loadTmuxSessions().catch(() => undefined);
+      return;
+    }
     setTerminalStatus(`sent to ${session}; following output`);
     scheduleTmuxFollow(session);
+  }
+
+  async function cancelQueuedTmuxMessage(id: string) {
+    await api<{ ok: true; cancelled: boolean }>(`/api/tmux/queue/${encodeURIComponent(id)}`, { method: "DELETE" });
+    await loadTmuxSessions();
   }
 
   async function interruptTmux() {
@@ -2779,6 +2793,12 @@ export function App() {
               />
               <button aria-label="Send to tmux" title="Send to tmux" type="submit"><Play size={15} /></button>
             </form>
+          )}
+          {selectedTmuxEntry?.queued && (
+            <TmuxQueuedMessages
+              messages={selectedTmuxEntry.queued}
+              onCancel={(id) => cancelQueuedTmuxMessage(id).catch(reportError(setError))}
+            />
           )}
         </div>
       </aside>

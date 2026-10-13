@@ -1271,6 +1271,51 @@ textarea:focus {
   display: none;
 }
 
+.tmux-queued {
+  display: grid;
+  gap: 4px;
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.tmux-queued li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 28px;
+  align-items: center;
+  column-gap: 8px;
+  padding: 4px 4px 4px 8px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 2px;
+}
+
+.tmux-queued-text {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tmux-queued-note {
+  grid-column: 1;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.tmux-queued button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  background: var(--surface-control);
+  color: var(--text-control);
+}
+
 .tmux-terminal-toolbar {
   display: grid;
   grid-template-columns: minmax(0, auto) 34px 34px auto 34px minmax(0, 1fr) 34px;

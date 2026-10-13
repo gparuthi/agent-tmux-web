@@ -16,3 +16,11 @@ export function tmuxPaneAgent(command: string | undefined): string | null {
 export function tmuxEntryAgent(entry: { agent?: string; currentCommand?: string }): string | null {
   return entry.agent || tmuxPaneAgent(entry.currentCommand);
 }
+
+// Agents that throw away input typed mid-turn, so atw holds messages until the turn ends.
+// hax reads and discards stdin while a turn runs, then tcflushes it; Claude, Codex, pi and opencode queue it.
+export const TMUX_AGENTS_DROPPING_TYPE_AHEAD: ReadonlySet<string> = new Set(["hax"]);
+
+export function tmuxAgentDropsTypeAhead(agent: string | null | undefined): boolean {
+  return typeof agent === "string" && TMUX_AGENTS_DROPPING_TYPE_AHEAD.has(agent.toLowerCase());
+}

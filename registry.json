@@ -66,12 +66,14 @@
         { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
+        { "path": "src/server/tmuxSendQueue.ts", "type": "registry:file", "target": "~/src/server/tmuxSendQueue.ts" },
         { "path": "src/shared/tmuxAgents.ts", "type": "registry:file", "target": "~/src/shared/tmuxAgents.ts" },
         { "path": "src/client/tmuxSessionGroups.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionGroups.ts" },
         { "path": "src/client/keyStripCombos.ts", "type": "registry:file", "target": "~/src/client/keyStripCombos.ts" },
         { "path": "src/client/TmuxSessionList.tsx", "type": "registry:file", "target": "~/src/client/TmuxSessionList.tsx" },
         { "path": "src/client/tmuxRailShortcuts.ts", "type": "registry:file", "target": "~/src/client/tmuxRailShortcuts.ts" },
         { "path": "src/client/TmuxKeyStrip.tsx", "type": "registry:file", "target": "~/src/client/TmuxKeyStrip.tsx" },
+        { "path": "src/client/TmuxQueuedMessages.tsx", "type": "registry:file", "target": "~/src/client/TmuxQueuedMessages.tsx" },
         { "path": "src/client/ansi.ts", "type": "registry:file", "target": "~/src/client/ansi.ts" },
         { "path": "src/client/accessToken.ts", "type": "registry:file", "target": "~/src/client/accessToken.ts" },
         { "path": "src/client/androidBridge.ts", "type": "registry:file", "target": "~/src/client/androidBridge.ts" },
@@ -349,6 +351,11 @@
           "target": "~/src/server/tmuxLastInput.ts"
         },
         {
+          "path": "src/server/tmuxSendQueue.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tmuxSendQueue.ts"
+        },
+        {
           "path": "src/shared/tmuxAgents.ts",
           "type": "registry:file",
           "target": "~/src/shared/tmuxAgents.ts"
@@ -377,6 +384,11 @@
           "path": "src/client/TmuxKeyStrip.tsx",
           "type": "registry:file",
           "target": "~/src/client/TmuxKeyStrip.tsx"
+        },
+        {
+          "path": "src/client/TmuxQueuedMessages.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TmuxQueuedMessages.tsx"
         },
         {
           "path": "src/client/ansi.ts",

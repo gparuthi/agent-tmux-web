@@ -130,6 +130,20 @@ describe("agent-status snapshot", () => {
       expect((await cache.statuses()).size).toBe(0);
     });
 
+    it("serves the fresh rows with kind and idle_since for the send queue, and null once stale", async () => {
+      const cache = reader();
+      expect(await cache.rows()).toBeNull();
+
+      await writeFile(snapshotPath, snapshotText(NOW_SEC, [row("%9", "hax", "done", { idle_since: NOW_SEC - 4 })]));
+      nowMs += 2000;
+      const snapshot = await cache.rows();
+      expect(snapshot?.epochSec).toBe(NOW_SEC);
+      expect(snapshot?.rows.get("%9")).toEqual({ paneId: "%9", kind: "hax", status: "done", idleSinceSec: NOW_SEC - 4 });
+
+      nowMs += 40_000;
+      expect(await cache.rows()).toBeNull();
+    });
+
     it("kicks a refresh when the snapshot is missing or 3s old, at most every 2s", async () => {
       const cache = reader();
       await cache.statuses();
