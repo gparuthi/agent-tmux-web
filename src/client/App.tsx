@@ -87,7 +87,7 @@ import {
 import { installRawTerminalGestureGuard } from "./rawTerminalGestureGuard.js";
 import { installRawTerminalInputGuard } from "./rawTerminalInputGuard.js";
 import { createRawTerminalSelectionHandler } from "./rawTerminalSelection.js";
-import { shouldAutoCaptureTmux, TMUX_CAPTURE_POLL_INTERVAL_MS, TMUX_SEND_FOLLOW_DELAYS_MS } from "./tmuxFollow.js";
+import { followTmuxOutputResize, isTmuxOutputAtBottom, shouldAutoCaptureTmux, TMUX_CAPTURE_POLL_INTERVAL_MS, TMUX_SEND_FOLLOW_DELAYS_MS } from "./tmuxFollow.js";
 import {
   isCurrentTmuxCaptureOwner,
   shouldAdmitTmuxCapture,
@@ -698,6 +698,25 @@ export function App() {
   }), []);
 
   useEffect(() => installVisualViewportTracking(window), []);
+
+  // The keyboard opening or closing resizes the output; one following the latest lines stays at the bottom.
+  useEffect(() => {
+    const shell = tmuxCaptureWidthRef.current;
+    if (!shell) {
+      return;
+    }
+    const observer = new ResizeObserver(() => {
+      const node = currentTmuxScrollNode();
+      const atBottom = node ? followTmuxOutputResize(node, tmuxStickToBottomRef.current) : null;
+      if (atBottom === null) {
+        return;
+      }
+      tmuxStickToBottomRef.current = atBottom;
+      setTmuxAtBottom(atBottom);
+    });
+    observer.observe(shell);
+    return () => observer.disconnect();
+  }, []);
 
   // iOS soft keyboards report "Unidentified" keydowns, so an armed modifier also intercepts beforeinput.
   useEffect(() => {
@@ -2349,7 +2368,7 @@ export function App() {
   }
 
   function updateTmuxBottomState(node: HTMLElement) {
-    const atBottom = node.scrollHeight - node.scrollTop - node.clientHeight < 24;
+    const atBottom = isTmuxOutputAtBottom(node);
     tmuxStickToBottomRef.current = atBottom;
     setTmuxAtBottom(atBottom);
   }
