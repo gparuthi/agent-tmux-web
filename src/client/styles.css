@@ -49,6 +49,8 @@
   --shadow: rgba(0, 0, 0, 0.34);
   --shadow-soft: rgba(0, 0, 0, 0.24);
   --shadow-strong: rgba(0, 0, 0, 0.44);
+  /* The home indicator inset still showing above the keyboard; none while the keyboard is open. */
+  --atw-safe-bottom: max(0px, env(safe-area-inset-bottom) - var(--atw-keyboard-inset, 0px));
   background: var(--surface-base);
   color: var(--text-primary);
   font-synthesis: none;
@@ -144,11 +146,16 @@ button:disabled {
 }
 
 .app-shell {
+  /* Fixed to the visual viewport so an iOS document pan can't push the composer under the keyboard. */
+  position: fixed;
+  top: var(--atw-viewport-top, 0px);
+  right: 0;
+  left: 0;
   display: block;
-  height: 100dvh;
+  height: var(--atw-viewport-height, 100dvh);
   min-height: 0;
   overflow: hidden;
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) var(--atw-safe-bottom) env(safe-area-inset-left);
 }
 
 .sidebar,
@@ -1396,7 +1403,7 @@ textarea:focus {
   display: grid;
   gap: 10px;
   min-width: 218px;
-  max-height: calc(100dvh - 74px);
+  max-height: calc(var(--atw-viewport-height, 100dvh) - 74px);
   overflow: auto;
   padding: 10px;
   border: 1px solid var(--border-strong);
@@ -1802,7 +1809,7 @@ textarea:focus {
 @media (max-width: 1120px) {
   .app-shell {
     display: block;
-    height: 100dvh;
+    height: var(--atw-viewport-height, 100dvh);
     min-height: 0;
   }
 
@@ -1834,7 +1841,7 @@ textarea:focus {
 
   .app-shell {
     display: block;
-    height: 100dvh;
+    height: var(--atw-viewport-height, 100dvh);
     min-height: 0;
     overflow: hidden;
   }
@@ -1860,7 +1867,7 @@ textarea:focus {
   .tmux-sessions {
     display: grid;
     gap: 1px;
-    max-height: 55dvh;
+    max-height: calc(var(--atw-viewport-height, 100dvh) * 0.55);
     overflow-x: hidden;
     overflow-y: auto;
     padding-bottom: 2px;
@@ -1909,7 +1916,7 @@ textarea:focus {
     left: 0;
     right: 0;
     z-index: 30;
-    max-height: calc(100dvh - 118px);
+    max-height: calc(var(--atw-viewport-height, 100dvh) - 118px);
     overflow: auto;
     padding: 10px;
     border: 1px solid var(--border-strong);
@@ -1960,11 +1967,11 @@ textarea:focus {
 
   .tmux-settings-menu-content {
     position: fixed;
-    top: calc(env(safe-area-inset-top) + 86px);
+    top: calc(var(--atw-viewport-top, 0px) + env(safe-area-inset-top) + 86px);
     right: 8px;
     left: 8px;
     width: auto;
-    max-height: calc(100dvh - 94px - env(safe-area-inset-bottom));
+    max-height: calc(var(--atw-viewport-height, 100dvh) - 94px - var(--atw-safe-bottom));
   }
 
   .tmux-view-menu-content {
@@ -2075,7 +2082,8 @@ textarea:focus {
 
 .new-agent-backdrop {
   position: fixed;
-  inset: 0;
+  /* Only the part of the screen above the keyboard, so sheet inputs stay visible. */
+  inset: var(--atw-viewport-top, 0px) 0 var(--atw-keyboard-inset, 0px);
   z-index: 50;
   display: flex;
   align-items: center;
@@ -2088,7 +2096,7 @@ textarea:focus {
   display: grid;
   gap: 10px;
   width: min(440px, 100%);
-  max-height: min(640px, calc(100vh - 32px));
+  max-height: min(640px, 100%);
   overflow: auto;
   padding: 14px;
   border: 1px solid var(--border-strong);
@@ -2339,7 +2347,7 @@ textarea:focus {
 .tmux-toast {
   position: fixed;
   left: 50%;
-  bottom: calc(16px + env(safe-area-inset-bottom));
+  bottom: calc(16px + var(--atw-keyboard-inset, 0px) + var(--atw-safe-bottom));
   z-index: 60;
   width: max-content;
   max-width: min(440px, calc(100vw - 24px));
@@ -2372,8 +2380,8 @@ textarea:focus {
 
   .new-agent-sheet {
     width: 100%;
-    max-height: 85vh;
-    padding-bottom: calc(14px + env(safe-area-inset-bottom));
+    max-height: 85%;
+    padding-bottom: calc(14px + var(--atw-safe-bottom));
     border-radius: 14px 14px 0 0;
   }
 }

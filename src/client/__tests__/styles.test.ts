@@ -33,7 +33,7 @@ describe("responsive mobile CSS", () => {
     expect(mobileBlock).toContain("body,");
     expect(mobileBlock).toContain("#root");
     expect(mobileBlock).toContain("overflow: hidden");
-    expect(mobileBlock).toContain("height: 100dvh");
+    expect(mobileBlock).toContain("height: var(--atw-viewport-height, 100dvh)");
     expect(css).toContain("env(safe-area-inset-top)");
     expect(mobileBlock).toContain("display: none");
     expect(mobileBlock).toContain("flex: 1 1 auto");
@@ -311,6 +311,26 @@ describe("responsive mobile CSS", () => {
     expect(mobileBlock.text).toMatch(workspaceFlexRule);
     expect(outsideMobileBlock).not.toMatch(workspaceFlexRule);
     expect(css.match(new RegExp(workspaceFlexRule.source, "g"))).toHaveLength(1);
+  });
+
+  it("keeps the shell, sheets and menus above the on-screen keyboard", () => {
+    const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
+    const html = readFileSync(join(process.cwd(), "index.html"), "utf8");
+    const shell = extractBalancedCssBlock(css, ".app-shell {").text;
+    const backdrop = extractBalancedCssBlock(css, ".new-agent-backdrop {").text;
+
+    expect(html).toContain("interactive-widget=resizes-content");
+    expect(shell).toContain("position: fixed");
+    expect(shell).toContain("top: var(--atw-viewport-top, 0px)");
+    expect(shell).toContain("height: var(--atw-viewport-height, 100dvh)");
+    expect(shell).toContain("var(--atw-safe-bottom)");
+    expect(css).toContain("--atw-safe-bottom: max(0px, env(safe-area-inset-bottom) - var(--atw-keyboard-inset, 0px))");
+    expect(backdrop).toContain("inset: var(--atw-viewport-top, 0px) 0 var(--atw-keyboard-inset, 0px)");
+    // Sheets and menus size from the visible viewport, never the keyboard-blind dvh/vh alone.
+    const bareDvhLines = css.split("\n").filter((line) => line.includes("dvh") && !line.includes("var(--atw-viewport-height, 100dvh)"));
+    expect(bareDvhLines.map((line) => line.trim())).toEqual(["min-height: 100dvh;"]);
+    expect(css).not.toContain("85vh");
+    expect(css).not.toMatch(/\+ env\(safe-area-inset-bottom\)|- env\(safe-area-inset-bottom\)/);
   });
 
 });

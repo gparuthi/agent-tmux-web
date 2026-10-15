@@ -164,6 +164,7 @@ import {
 } from "./tmuxViewPreferences.js";
 import { canShowBrowserNotifications, canShowWebSocketTaskNotifications, getBrowserNotificationAvailability, getBrowserNotificationSnapshot, setAndroidWatchPollingEnabled, showAgentNotification } from "./browserNotifications.js";
 import { hasAndroidConnectionSettings, openAndroidConnectionSettings } from "./androidConnectionSettings.js";
+import { installVisualViewportTracking } from "./visualViewport.js";
 
 type TimelineEntry = {
   id: string;
@@ -695,6 +696,8 @@ export function App() {
     blocked: () => railShortcutsBlocked(document),
     select: (digit) => selectRailShortcutRef.current(digit)
   }), []);
+
+  useEffect(() => installVisualViewportTracking(window), []);
 
   // iOS soft keyboards report "Unidentified" keydowns, so an armed modifier also intercepts beforeinput.
   useEffect(() => {
