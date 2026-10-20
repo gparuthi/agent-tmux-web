@@ -740,6 +740,18 @@ textarea:focus {
   white-space: nowrap;
 }
 
+.tmux-session-stale {
+  flex: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-style: italic;
+  white-space: nowrap;
+}
+
+.tmux-session-row.stale:not(.active) .tmux-session-name {
+  opacity: 0.6;
+}
+
 .tmux-session-wake-button {
   display: inline-flex;
   align-items: center;

@@ -15,6 +15,17 @@ import {
 } from "./tmuxSessionGroups.js";
 import { tmuxPaneDetail, tmuxPaneDisplayName } from "./tmuxSessionTarget.js";
 
+export const TMUX_PANE_STALE_AFTER_MS = 3 * 24 * 60 * 60_000;
+
+// "5d idle" when the owner's last input is over three days old; snoozed panes are parked on purpose.
+export function formatTmuxPaneStale(pane: TmuxSessionDto, nowMs: number): string {
+  if (pane.snoozedUntilMs || !pane.lastInputAtMs) {
+    return "";
+  }
+  const idleMs = nowMs - pane.lastInputAtMs;
+  return idleMs > TMUX_PANE_STALE_AFTER_MS ? `${Math.floor(idleMs / (24 * 60 * 60_000))}d idle` : "";
+}
+
 type TmuxSessionListProps = {
   panes: TmuxSessionDto[];
   pinnedNames: string[];
@@ -51,14 +62,15 @@ export function TmuxSessionList({
     const viewerCount = pane.viewerCount ?? 0;
     const displayName = tmuxPaneDisplayName(pane);
     const wake = pane.snoozedUntilMs ? formatWindowWake(pane.snoozedUntilMs, nowMs) : "";
+    const stale = formatTmuxPaneStale(pane, nowMs);
     const shortcut = shortcuts.get(pane.name);
     return (
-      <div className={`tmux-session-row ${selected === pane.name ? "active" : ""} ${unseen(pane) ? "unseen" : ""}${wake && onWake ? " snoozed" : ""}`} key={pane.name}>
+      <div className={`tmux-session-row ${selected === pane.name ? "active" : ""} ${unseen(pane) ? "unseen" : ""}${wake && onWake ? " snoozed" : ""}${stale ? " stale" : ""}`} key={pane.name}>
         <button
           aria-current={selected === pane.name ? "true" : undefined}
           aria-keyshortcuts={shortcut ? `${shortcut} Alt+${shortcut}` : undefined}
           className="tmux-session-select"
-          title={`${displayName} (${tmuxPaneDetail(pane)}): ${status.title}${wake ? `, snoozed, ${wake}` : ""}${unseen(pane) ? ", new output" : ""}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
+          title={`${displayName} (${tmuxPaneDetail(pane)}): ${status.title}${wake ? `, snoozed, ${wake}` : ""}${stale ? `, possibly stale, ${stale}` : ""}${unseen(pane) ? ", new output" : ""}${viewerCount > 0 ? `, ${viewerCount} other ${viewerCount === 1 ? "viewer" : "viewers"}` : ""}`}
           type="button"
           onClick={() => onSelect(pane.name)}
         >
@@ -69,6 +81,7 @@ export function TmuxSessionList({
           />
           <span className="tmux-session-name">{displayName}</span>
           {wake && <span className="tmux-session-wake">{wake}</span>}
+          {stale && <span className="tmux-session-stale">{stale}</span>}
           <span className="tmux-session-detail">{inGroup ? tmuxPaneGroupDetail(pane) : tmuxPaneDetail(pane)}</span>
           {viewerCount > 0 && (
             <span className="tmux-session-viewers" title={`${viewerCount} other tmux ${viewerCount === 1 ? "client" : "clients"} viewing`}>

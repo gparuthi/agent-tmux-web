@@ -115,6 +115,25 @@ describe("TmuxSessionList", () => {
     expect(readOnly).not.toContain("tmux-session-wake-button");
   });
 
+  it("marks a pane stale after three days without input unless it is snoozed", () => {
+    const nowMs = new Date(2026, 9, 20, 12, 0).getTime();
+    const day = 24 * 60 * 60_000;
+    const entries = [
+      pane("%1", "main", { displayName: "fresh", lastInputAtMs: nowMs - 2 * day }),
+      pane("%2", "main", { displayName: "old", lastInputAtMs: nowMs - 5 * day - 60_000 }),
+      pane("%3", "main", { displayName: "parked", lastInputAtMs: nowMs - 9 * day, snoozedUntilMs: nowMs + day }),
+      pane("%4", "main", { displayName: "unknown" })
+    ];
+    const html = renderToStaticMarkup(
+      <TmuxSessionList groupPreferences={[]} paneViews={allSeen} panes={entries} pinnedNames={[]} selected="%1" nowMs={nowMs} onSelect={vi.fn()} onTogglePin={vi.fn()} onToggleGroup={vi.fn()} />
+    );
+
+    expect(html.match(/class="tmux-session-stale"/g)).toHaveLength(1);
+    expect(html).toContain('<span class="tmux-session-stale">5d idle</span>');
+    expect(html).toMatch(/title="old \([^"]*, possibly stale, 5d idle/);
+    expect(html.match(/ stale"/g)).toHaveLength(1);
+  });
+
   it("hints keys 1-9 on the first nine visible rows only", () => {
     const html = render("%1", ["%2"]);
 
