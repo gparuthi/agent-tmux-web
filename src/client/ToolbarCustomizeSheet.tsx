@@ -36,7 +36,11 @@ export function ToolbarCustomizeSheet({ items, pins, maxInline, onChangePins, on
   function startDrag(event: PointerEvent<HTMLButtonElement>, index: number) {
     const row = event.currentTarget.closest("li");
     event.currentTarget.setPointerCapture?.(event.pointerId);
-    const next = { from: index, startY: event.clientY, rowHeight: row?.getBoundingClientRect().height ?? 0, offsetY: 0 };
+    // Row pitch (height plus the list gap), so the drop target matches where the rows sit.
+    const rect = row?.getBoundingClientRect();
+    const sibling = row?.nextElementSibling?.getBoundingClientRect();
+    const rowHeight = rect ? (sibling ? sibling.top - rect.top : rect.height) : 0;
+    const next = { from: index, startY: event.clientY, rowHeight, offsetY: 0 };
     dragRef.current = next;
     setDrag(next);
   }

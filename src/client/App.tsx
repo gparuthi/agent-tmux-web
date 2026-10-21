@@ -423,6 +423,9 @@ export function App() {
   const [toolbarLastUsed, setToolbarLastUsed] = useState<ToolbarLastUsed>(() => parseToolbarLastUsed(readStoredValue(TOOLBAR_LAST_USED_STORAGE_KEY)));
   const [toolbarCustomizeOpen, setToolbarCustomizeOpen] = useState(false);
   const [toolbarPins, setToolbarPins] = useState<ToolbarActionId[]>(() => parseToolbarPins(readStoredValue(TOOLBAR_PINNED_STORAGE_KEY)));
+  // Latest values for back-to-back taps that land before a re-render.
+  const toolbarPinsRef = useRef(toolbarPins);
+  const toolbarLastUsedRef = useRef(toolbarLastUsed);
   const tmuxFollowTimersRef = useRef<number[]>([]);
   const manualCaptureControllerRef = useRef<AbortController | null>(null);
   const manualCaptureOwnerRef = useRef<number | null>(null);
@@ -1779,19 +1782,21 @@ export function App() {
   }
 
   function runToolbarItem(item: ToolbarActionItem) {
-    const next = { ...toolbarLastUsed, [item.id]: Date.now() };
+    const next = { ...toolbarLastUsedRef.current, [item.id]: Date.now() };
+    toolbarLastUsedRef.current = next;
     setToolbarLastUsed(next);
     writeStoredJson(TOOLBAR_LAST_USED_STORAGE_KEY, next);
     item.onClick();
   }
 
   function setToolbarPinsAndSave(next: ToolbarActionId[]) {
+    toolbarPinsRef.current = next;
     setToolbarPins(next);
     writeStoredJson(TOOLBAR_PINNED_STORAGE_KEY, next);
   }
 
   function toggleToolbarPin(id: ToolbarActionId) {
-    setToolbarPinsAndSave(togglePinnedToolbarAction(toolbarPins, availableToolbarIds, id, maxInlineToolbar));
+    setToolbarPinsAndSave(togglePinnedToolbarAction(toolbarPinsRef.current, availableToolbarIds, id, maxInlineToolbar));
   }
 
   function closeTmuxSettingsMenu() {
