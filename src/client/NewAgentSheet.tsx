@@ -1,12 +1,12 @@
-import { Bot, X } from "lucide-react";
+import { Bot, ChevronLeft, Ellipsis, X } from "lucide-react";
 import { useEffect, useState, type FormEvent } from "react";
 
 import type { AgentsDto, StartAgentResultDto } from "../shared/api.js";
-import { clearLegacyNewAgentChoice, defaultNewAgentSelection, readApiErrorMessage, resolveNewAgentDirectory } from "./newAgent.js";
+import { clearLegacyNewAgentChoice, defaultNewAgentSelection, newAgentChipLabel, readApiErrorMessage, resolveNewAgentDirectory, visibleNewAgents } from "./newAgent.js";
 
 type NewAgentSheetProps = {
   loadAgents: () => Promise<AgentsDto>;
-  startAgent: (agent: string, cwd: string) => Promise<StartAgentResultDto>;
+  startAgent: (agent: string, cwd: string, name: string) => Promise<StartAgentResultDto>;
   onStarted: (result: StartAgentResultDto) => void;
   onClose: () => void;
   initialAgents?: AgentsDto | null;
@@ -18,6 +18,8 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
   const [agent, setAgent] = useState(initial.agent);
   const [directory, setDirectory] = useState(initial.directory);
   const [typedDirectory, setTypedDirectory] = useState("");
+  const [sessionName, setSessionName] = useState("");
+  const [moreAgents, setMoreAgents] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -55,7 +57,7 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
     setBusy(true);
     setError("");
     try {
-      const result = await startAgent(agent, cwd);
+      const result = await startAgent(agent, cwd, sessionName.trim());
       onStarted(result);
     } catch (startError) {
       setError(readApiErrorMessage(startError));
@@ -64,6 +66,7 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
     }
   }
 
+  const { visible: visibleAgents, hasHidden } = visibleNewAgents(agents?.agents ?? [], agent, moreAgents);
   const selectedLabel = agents?.agents.find((entry) => entry.id === agent)?.label ?? "agent";
   return (
     <div className="new-agent-backdrop" role="presentation" onClick={(event) => event.target === event.currentTarget && onClose()}>
@@ -73,22 +76,48 @@ export function NewAgentSheet({ loadAgents, startAgent, onStarted, onClose, init
           <button aria-label="Close" className="new-agent-close" title="Close" type="button" onClick={onClose}><X size={16} /></button>
         </header>
         <div className="new-agent-label">Agent</div>
-        <div className="new-agent-choices" role="radiogroup" aria-label="Agent">
+        <div className="new-agent-choices">
           {agents === null && <span className="new-agent-muted">Loading…</span>}
           {agents?.agents.length === 0 && <span className="new-agent-muted">No agent binaries found.</span>}
-          {agents?.agents.map((entry) => (
+          <div className="new-agent-radios" role="radiogroup" aria-label="Agent">
+            {visibleAgents.map((entry) => (
+              <button
+                aria-checked={agent === entry.id}
+                aria-label={entry.label}
+                className={agent === entry.id ? "active" : ""}
+                key={entry.id}
+                role="radio"
+                title={entry.label}
+                type="button"
+                onClick={() => setAgent(entry.id)}
+              >
+                {newAgentChipLabel(entry)}
+              </button>
+            ))}
+          </div>
+          {hasHidden && (
             <button
-              aria-checked={agent === entry.id}
-              className={agent === entry.id ? "active" : ""}
-              key={entry.id}
-              role="radio"
+              aria-expanded={moreAgents}
+              aria-label={moreAgents ? "Fewer agents" : "More agents"}
+              className="new-agent-more"
+              title={moreAgents ? "Fewer agents" : "More agents"}
               type="button"
-              onClick={() => setAgent(entry.id)}
+              onClick={() => setMoreAgents((current) => !current)}
             >
-              {entry.label}
+              {moreAgents ? <ChevronLeft aria-hidden="true" size={16} /> : <Ellipsis aria-hidden="true" size={16} />}
             </button>
-          ))}
+          )}
         </div>
+        <div className="new-agent-label">Session name</div>
+        <input
+          aria-label="Session name"
+          autoCapitalize="off"
+          className="new-agent-path"
+          maxLength={100}
+          placeholder="Name (optional)"
+          value={sessionName}
+          onChange={(event) => setSessionName(event.target.value)}
+        />
         <div className="new-agent-label">Directory</div>
         <div className="new-agent-directories" role="radiogroup" aria-label="Directory">
           {agents?.directories.map((entry) => (

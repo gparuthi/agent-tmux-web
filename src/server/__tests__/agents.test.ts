@@ -7,6 +7,7 @@ import { promisify } from "node:util";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  agentRenamesAfterLaunch,
   AgentRequestError,
   buildAgentDefinitions,
   buildAgentShellArgv,
@@ -18,6 +19,7 @@ import {
   listAvailableAgents,
   mergeAgentDirectories,
   resolveAgentDirectory,
+  sanitizeNewAgentName,
   startAgentInTmux,
   agentBinaryDirs,
   shellQuote,
@@ -170,6 +172,61 @@ describe("agent tmux arguments", () => {
   });
 });
 
+describe("named new agents", () => {
+  const claude: AvailableAgent = { id: "claude", label: "Claude Code", binary: "/Users/me/.local/bin/claude", shellCommand: "/Users/me/.local/bin/claude" };
+  const codex: AvailableAgent = { id: "codex", label: "Codex", binary: "/opt/homebrew/bin/codex", shellCommand: "codex" };
+
+  it("passes the name to claude and pi as --name and uses it as the window name", () => {
+    const args = buildNewAgentTmuxArgs({ definition: claude, directory: "/Users/me/work/atw", shell: "/bin/zsh", sessionExists: true, name: "fix auth" });
+    expect(args.slice(args.indexOf("-n"))).toEqual([
+      "-n", "fix auth",
+      "/bin/zsh", "-lic", "/Users/me/.local/bin/claude --name 'fix auth'; exec /bin/zsh -l"
+    ]);
+    expect(buildAgentShellArgv(pi, "/bin/zsh", "x")[2]).toBe("/Users/me/.local/bin/pi --name x; exec /bin/zsh -l");
+  });
+
+  it("leaves the launch and window name unchanged for an empty name", () => {
+    const plain = buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true });
+    expect(buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true, name: "" })).toEqual(plain);
+    expect(plain.slice(plain.indexOf("-n"))).toEqual(["-n", "claude:x", "/bin/zsh", "-lic", "/Users/me/.local/bin/claude; exec /bin/zsh -l"]);
+  });
+
+  it("single-quotes a hostile name so the shell sees one argument", () => {
+    const name = sanitizeNewAgentName("a'; rm -rf ~ #");
+    const args = buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true, name });
+    const command = args[args.length - 1];
+    expect(command).toBe(`/Users/me/.local/bin/claude --name 'a'\\''; rm -rf ~ #'; exec /bin/zsh -l`);
+    // The window name drops everything tmux or a shell could act on.
+    expect(args[args.indexOf("-n") + 1]).not.toMatch(/[';~#]/);
+    const echoed = spawnSync("/bin/sh", ["-c", `printf '%s' ${command.slice(command.indexOf("--name ") + 7, command.indexOf("; exec"))}`]);
+    expect(echoed.stdout.toString()).toBe("a'; rm -rf ~ #");
+  });
+
+  it("sanitizes the window name against tmux format expansion", () => {
+    expect(buildAgentWindowName("claude", "/srv/x", "#(touch pwned) #{pane_id}")).toBe("touch pwned- -pane_id");
+    expect(buildAgentWindowName("claude", "/srv/x", "###")).toBe("claude:x");
+    expect(buildAgentWindowName("claude", "/srv/x", "a".repeat(100))).toBe("a".repeat(40));
+  });
+
+  it("flattens control characters and drops leading dashes", () => {
+    expect(sanitizeNewAgentName("  --evil\nname\u0007 ")).toBe("evil name");
+    expect(sanitizeNewAgentName("---")).toBe("");
+    expect(sanitizeNewAgentName(undefined)).toBe("");
+    expect(sanitizeNewAgentName("x".repeat(150))).toHaveLength(100);
+    const args = buildAgentShellArgv(claude, "/bin/zsh", "--evil");
+    expect(args[2]).toBe("/Users/me/.local/bin/claude --name evil; exec /bin/zsh -l");
+  });
+
+  it("renames after launch only for agents with a rename command but no launch flag", () => {
+    expect(buildAgentShellArgv(codex, "/bin/zsh", "x")[2]).toBe("codex; exec /bin/zsh -l");
+    expect(agentRenamesAfterLaunch("codex", "x")).toBe(true);
+    expect(agentRenamesAfterLaunch("codex", "")).toBe(false);
+    for (const id of ["claude", "pi", "hax", "opencode"]) {
+      expect(agentRenamesAfterLaunch(id, "x")).toBe(false);
+    }
+  });
+});
+
 describe("agent directory suggestions", () => {
   it("lists git repos under the roots and merges pane cwds, most recent first", async () => {
     const home = await makeTempDir();
@@ -279,5 +336,28 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
 
     await expect(startAgentInTmux("bash", project, { definitions, shell })).rejects.toThrow(/Unknown agent/);
     await expect(startAgentInTmux("pi", path.join(workDir, "missing"), { definitions, shell })).rejects.toThrow(/does not exist/);
+  });
+
+  it("names the window and passes the quoted name to a launch-flag agent", async () => {
+    const binary = await makeExecutable(path.join(workDir, "fake-pi"));
+    const shell = await makeExecutable(
+      path.join(workDir, "named-shell"),
+      `#!/bin/sh\nprintf '%s\\n' "$@" > "$PWD/.named-args"\nexec sleep 30\n`
+    );
+    const project = path.join(workDir, "named project");
+    await mkdir(project);
+    const definitions = [{ id: "pi", label: "pi", command: "fake-pi", candidates: [binary] }];
+
+    const started = await startAgentInTmux("pi", project, { definitions, shell, name: "a'; rm -rf ~ #" });
+    expect(started.windowName).toBe("a- rm -rf");
+    const { stdout } = await testTmux(["display-message", "-p", "-t", started.pane, "#{window_name}"]);
+    expect(stdout.trim()).toBe("a- rm -rf");
+
+    let recorded = "";
+    for (let attempt = 0; attempt < 30 && !recorded; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      recorded = await readFile(path.join(project, ".named-args"), "utf8").catch(() => "");
+    }
+    expect(recorded.trim().split("\n")).toEqual(["-lic", `${binary} --name 'a'\\''; rm -rf ~ #'; exec ${shell} -l`]);
   });
 });

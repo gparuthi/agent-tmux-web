@@ -6,6 +6,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type { AgentDirectoryDto, AgentDto } from "../shared/api.js";
+import { sanitizeTmuxRenameName, supportsTmuxRename } from "../shared/tmuxRename.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -22,7 +23,7 @@ export type AgentDefinition = AgentDto & {
 
 export type AvailableAgent = AgentDto & {
   binary: string;
-  // Fixed text run by the login shell; never contains request data.
+  // Fixed text run by the login shell; request data only enters through buildAgentShellArgv's quoted name.
   shellCommand: string;
 };
 
@@ -109,14 +110,42 @@ export async function resolveAgentDirectory(input: unknown, homeDir: string = os
   return resolved;
 }
 
-export function buildAgentWindowName(agentId: string, directory: string): string {
+// Agents whose CLI takes the session name at launch; the rest are renamed once they are running.
+export const AGENT_LAUNCH_NAME_FLAGS: Readonly<Record<string, string>> = {
+  claude: "--name",
+  pi: "--name"
+};
+
+// One printable line; leading dashes go so the name can't read as another flag.
+export function sanitizeNewAgentName(value: unknown): string {
+  return sanitizeTmuxRenameName(value).replace(/^[-\s]+/u, "");
+}
+
+// Agents that only take a name through their rename command, typed once the TUI is up.
+export function agentRenamesAfterLaunch(agentId: string, name: string): boolean {
+  return name !== "" && supportsTmuxRename(agentId) && !Object.hasOwn(AGENT_LAUNCH_NAME_FLAGS, agentId);
+}
+
+// tmux expands #(...) and #{...} in -n, so a window name keeps only plain characters.
+function windowSafeName(name: string): string {
+  return name.replace(/[^\p{L}\p{N} ._-]+/gu, "-").replace(/^[-\s]+|[-\s]+$/gu, "").slice(0, 40).trim();
+}
+
+export function buildAgentWindowName(agentId: string, directory: string, name = ""): string {
+  const named = windowSafeName(name);
+  if (named) {
+    return named;
+  }
   const base = path.basename(directory).replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
   return `${agentId}:${base || "root"}`;
 }
 
 // Multiple arguments make tmux exec the shell directly instead of via `sh -c`.
-export function buildAgentShellArgv(definition: AvailableAgent, shell: string): string[] {
-  return [shell, "-lic", `${definition.shellCommand}; exec ${shell} -l`];
+export function buildAgentShellArgv(definition: AvailableAgent, shell: string, name = ""): string[] {
+  const flag = Object.hasOwn(AGENT_LAUNCH_NAME_FLAGS, definition.id) ? AGENT_LAUNCH_NAME_FLAGS[definition.id] : "";
+  const safeName = sanitizeNewAgentName(name);
+  const launch = flag && safeName ? `${definition.shellCommand} ${flag} ${shellQuote(safeName)}` : definition.shellCommand;
+  return [shell, "-lic", `${launch}; exec ${shell} -l`];
 }
 
 export function buildNewAgentTmuxArgs(options: {
@@ -125,10 +154,12 @@ export function buildNewAgentTmuxArgs(options: {
   shell: string;
   sessionExists: boolean;
   session?: string;
+  // Sanitized session name; empty keeps the default window name and plain launch.
+  name?: string;
 }): string[] {
   const session = options.session ?? NEW_AGENT_TMUX_SESSION;
-  const name = buildAgentWindowName(options.definition.id, options.directory);
-  const command = buildAgentShellArgv(options.definition, options.shell);
+  const name = buildAgentWindowName(options.definition.id, options.directory, options.name);
+  const command = buildAgentShellArgv(options.definition, options.shell, options.name);
   const placement = options.sessionExists
     ? ["new-window", "-t", `=${session}:`]
     : ["new-session", "-d", "-s", session];
@@ -150,23 +181,25 @@ export function resolveLoginShell(): string {
 export async function startAgentInTmux(
   agentId: unknown,
   directoryInput: unknown,
-  options: { definitions?: AgentDefinition[]; shell?: string; homeDir?: string } = {}
+  options: { definitions?: AgentDefinition[]; shell?: string; homeDir?: string; name?: unknown } = {}
 ): Promise<{ pane: string; directory: string; windowName: string }> {
   const definition = findAgentDefinition(agentId, await listAvailableAgents(options.definitions));
   const directory = await resolveAgentDirectory(directoryInput, options.homeDir);
+  const name = sanitizeNewAgentName(options.name);
   const sessionExists = await execFileAsync("tmux", ["has-session", "-t", `=${NEW_AGENT_TMUX_SESSION}`])
     .then(() => true, () => false);
   const { stdout } = await execFileAsync("tmux", buildNewAgentTmuxArgs({
     definition,
     directory,
     shell: options.shell ?? resolveLoginShell(),
-    sessionExists
+    sessionExists,
+    name
   }));
   const pane = stdout.trim();
   if (!/^%\d+$/.test(pane)) {
     throw new Error(`tmux did not report the new pane id: ${pane}`);
   }
-  return { pane, directory, windowName: buildAgentWindowName(definition.id, directory) };
+  return { pane, directory, windowName: buildAgentWindowName(definition.id, directory, name) };
 }
 
 export function defaultAgentRepoRoots(homeDir: string = os.homedir()): string[] {

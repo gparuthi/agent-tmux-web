@@ -147,7 +147,7 @@ import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
 import { RenameSessionSheet } from "./RenameSessionSheet.js";
 import { TmuxActionsSheet } from "./TmuxActionsSheet.js";
 import { formatTmuxActionResult } from "./tmuxActions.js";
-import { readApiErrorMessage } from "./newAgent.js";
+import { buildStartAgentBody, readApiErrorMessage } from "./newAgent.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
 import {
   DEFAULT_TMUX_VIEW_STORAGE_KEY,
@@ -2878,10 +2878,10 @@ function loadNewAgentOptions(): Promise<AgentsDto> {
   return api<{ data: AgentsDto }>("/api/tmux/agents").then((result) => result.data);
 }
 
-function startNewAgent(agent: string, cwd: string): Promise<StartAgentResultDto> {
+function startNewAgent(agent: string, cwd: string, name: string): Promise<StartAgentResultDto> {
   return api<{ data: StartAgentResultDto }>("/api/tmux/agents/start", {
     method: "POST",
-    body: JSON.stringify({ agent, cwd })
+    body: JSON.stringify(buildStartAgentBody(agent, cwd, name))
   }).then((result) => result.data);
 }
 

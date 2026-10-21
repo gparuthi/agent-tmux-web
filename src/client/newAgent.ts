@@ -1,8 +1,32 @@
-import type { AgentsDto } from "../shared/api.js";
+import type { AgentDto, AgentsDto } from "../shared/api.js";
 
 // A typed path wins over the picked suggestion.
 export function resolveNewAgentDirectory(selected: string, typed: string): string {
   return typed.trim() || selected;
+}
+
+// Chip text for the one-row picker; the server's labels stay as they are for other consumers.
+export const NEW_AGENT_SHORT_LABELS: Readonly<Record<string, string>> = { claude: "cc" };
+// Behind the "more" chip unless one of them is the selected agent.
+export const NEW_AGENT_HIDDEN_IDS: readonly string[] = ["opencode", "pi", "codex"];
+
+export function newAgentChipLabel(agent: AgentDto): string {
+  return Object.hasOwn(NEW_AGENT_SHORT_LABELS, agent.id) ? NEW_AGENT_SHORT_LABELS[agent.id] : agent.label;
+}
+
+// The chips for the agents row, plus whether a "more" chip is needed at all.
+export function visibleNewAgents(agents: AgentDto[], selected: string, expanded: boolean): { visible: AgentDto[]; hasHidden: boolean } {
+  const isHidden = (agent: AgentDto) => NEW_AGENT_HIDDEN_IDS.includes(agent.id);
+  return {
+    visible: agents.filter((agent) => expanded || !isHidden(agent) || agent.id === selected),
+    hasHidden: agents.some(isHidden)
+  };
+}
+
+// An empty name is left out so the server keeps its default window name and plain launch.
+export function buildStartAgentBody(agent: string, cwd: string, name: string): { agent: string; cwd: string; name?: string } {
+  const trimmed = name.trim();
+  return { agent, cwd, ...(trimmed ? { name: trimmed } : {}) };
 }
 
 export const PREFERRED_NEW_AGENT_ID = "claude";

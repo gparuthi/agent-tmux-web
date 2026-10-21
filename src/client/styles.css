@@ -2152,8 +2152,29 @@ textarea:focus {
 
 .new-agent-choices {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.new-agent-radios {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.new-agent-choices button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.new-agent-choices .new-agent-more {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
 }
 
 .new-agent-choices button,

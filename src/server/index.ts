@@ -17,7 +17,8 @@ import {
 } from "../shared/api.js";
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, resolveTmuxSessionStatus } from "../shared/tmuxStatus.js";
-import { listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, startAgentInTmux } from "./agents.js";
+import { renameWhenReady } from "./agentStartName.js";
+import { agentRenamesAfterLaunch, listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, sanitizeNewAgentName, startAgentInTmux } from "./agents.js";
 import { createAuthMiddleware, isAuthorizedWebSocketRequest, parseTailscaleLogins } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
 import { AgentRowsCache } from "./agentRows.js";
@@ -327,8 +328,19 @@ app.get("/api/tmux/agents", asyncHandler(async (_req, res) => {
 
 app.post("/api/tmux/agents/start", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
-  const started = await startAgentInTmux(body.agent, body.cwd);
+  const name = sanitizeNewAgentName(body.name);
+  const started = await startAgentInTmux(body.agent, body.cwd, { name });
   tmuxLastInput.record(started.pane);
+  if (typeof body.agent === "string" && agentRenamesAfterLaunch(body.agent, name)) {
+    // Fire and forget: the reply must not wait for the agent's TUI to come up.
+    void renameWhenReady({
+      pane: started.pane,
+      agent: body.agent,
+      name,
+      readRows: () => agentRowsCache.rows(),
+      submitText: (target, text) => sendTmuxText(target, text, true, "enter")
+    }).catch((error: unknown) => console.error("Failed to name the new agent session", error));
+  }
   res.json({
     data: { ...started, sessions: await listTmuxSessionsWithStatus() } satisfies StartAgentResultDto
   });
