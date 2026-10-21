@@ -41,7 +41,8 @@ describe("responsive mobile CSS", () => {
 
   it("keeps the mobile tmux toolbar stable with a direct TTY/Raw toggle, pane actions and an overflow menu", () => {
     const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
-    const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
+    const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8")
+      + readFileSync(join(process.cwd(), "src/client/TmuxToolbarButtons.tsx"), "utf8");
     const mobileBlock = css.slice(css.indexOf("@media (max-width: 760px)"));
 
     expect(css).toContain(".tmux-view-menu");
@@ -50,9 +51,9 @@ describe("responsive mobile CSS", () => {
     expect(app).toContain('aria-label="More options"');
     expect(app).toContain("<span>Browser notifications</span>");
     expect(app).toContain("<span>Show all panes");
-    expect(app).toContain('aria-label="Close pane"');
-    expect(app).toContain('aria-label="Stop tmux task"');
-    expect(app).toContain('className="tmux-view-toggle"');
+    expect(app).toContain('ariaLabel: "Close pane"');
+    expect(app).toContain('ariaLabel: "Stop tmux task"');
+    expect(app).toContain('"tmux-view-toggle"');
     expect(app).toContain('Switch to ${terminalActive ? "TTY" : "Raw"} view');
     expect(app).not.toContain("tmux-view-picker-content");
     expect(app).toContain('raw: "Raw"');
@@ -62,8 +63,8 @@ describe("responsive mobile CSS", () => {
     expect(app).toContain(">App</span>");
     expect(app).toContain(">Connection settings</span>");
     expect(mobileBlock).toContain("max-width: 150px");
-    expect(mobileBlock).toContain("grid-template-columns: repeat(5, 36px) minmax(0, 1fr) 36px");
-    expect(mobileBlock).not.toContain("grid-template-columns: 36px 36px 36px 36px 36px 36px 36px minmax(0, 1fr)");
+    expect(css).toContain("display: flex;\n  gap: 8px;\n  align-items: center;\n  height: 54px");
+    expect(mobileBlock).not.toContain(".tmux-terminal-toolbar.with-snooze");
   });
 
   it("replaces the floating Android Set button with bridge and native recovery paths", () => {
@@ -91,7 +92,7 @@ describe("responsive mobile CSS", () => {
     expect(app).toContain("rememberTmuxViewMode(selectedTmux, mode)");
     expect(app).toContain("Remember per session");
     expect(app).toContain("Use default");
-    expect(app).toContain('onClick={refreshTmux}');
+    expect(app).toContain('onClick: refreshTmux');
     expect(app).toContain("shouldShowRawTerminalShortcuts");
     expect(app).toContain("WebLinksAddon");
     expect(app).toContain("createRawTerminalSelectionHandler");
@@ -188,7 +189,7 @@ describe("responsive mobile CSS", () => {
     expect(syncBlock).toMatch(/\.finally\(\(\) => \{\s+releaseManualCapture\(owner\);/);
     expect(app).toContain("isCurrentManualCaptureOwner(owner)");
     expect(app).toContain("cancelManualCapture(false)");
-    expect(app).toContain("aria-busy={manualCaptureActive}");
+    expect(app).toContain("busy: manualCaptureActive");
   });
 
   it("renders and gates controls for the no-session state", () => {
@@ -197,7 +198,7 @@ describe("responsive mobile CSS", () => {
     expect(app).toContain("!selectedTmux ? (");
     expect(app).toContain('className="tmux-empty-session"');
     expect(app).toContain("No tmux session selected");
-    expect(app).toContain("disabled={manualCaptureActive}");
+    expect(app).toContain("disabled: manualCaptureActive");
     expect(app).toContain("const sessionSelected = Boolean(selectedTmux)");
     expect(app).toContain("showTmuxJumpToLatest");
     expect(app).toContain("{showTmuxJumpToLatest && (");
@@ -273,7 +274,7 @@ describe("responsive mobile CSS", () => {
     expect(desktopBlock.text).toContain(".tmux-compact-bar .tmux-session-menu-button");
     expect(desktopBlock.text).toContain("display: none");
     expect(mobileBlock).toContain(".tmux-app-toolbar");
-    expect(mobileBlock).toContain("grid-template-columns: repeat(5, 36px) minmax(0, 1fr) 36px");
+    expect(mobileBlock).toContain(".tmux-terminal-toolbar {\n    flex: none;\n    gap: 6px;");
     expect(mobileBlock).toContain(".tmux-menu.open");
   });
 

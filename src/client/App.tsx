@@ -35,6 +35,7 @@ import {
   RefreshCw,
   Send,
   Sparkles,
+  SlidersHorizontal,
   SquareX,
   Sun,
   Terminal as TerminalIcon,
@@ -146,6 +147,20 @@ import { NewAgentSheet } from "./NewAgentSheet.js";
 import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
 import { RenameSessionSheet } from "./RenameSessionSheet.js";
 import { TmuxActionsSheet } from "./TmuxActionsSheet.js";
+import { ToolbarCustomizeSheet } from "./ToolbarCustomizeSheet.js";
+import { ToolbarInlineButtons, ToolbarMenuSection, type ToolbarActionItem } from "./TmuxToolbarButtons.js";
+import {
+  TOOLBAR_LAST_USED_STORAGE_KEY,
+  TOOLBAR_PINNED_STORAGE_KEY,
+  canKeepInToolbar,
+  inlineToolbarActions,
+  maxInlineToolbarActions,
+  parseToolbarLastUsed,
+  parseToolbarPins,
+  togglePinnedToolbarAction,
+  type ToolbarActionId,
+  type ToolbarLastUsed
+} from "./tmuxToolbarActions.js";
 import { formatTmuxActionResult } from "./tmuxActions.js";
 import { buildStartAgentBody, readApiErrorMessage } from "./newAgent.js";
 import { TmuxTtyView } from "./TmuxTtyView.js";
@@ -403,6 +418,14 @@ export function App() {
   const tmuxOutputRef = useRef<HTMLElement | null>(null);
   const tmuxCaptureWidthRef = useRef<HTMLDivElement | null>(null);
   const tmuxSettingsMenuRef = useRef<HTMLDetailsElement | null>(null);
+  const tmuxToolbarRef = useRef<HTMLDivElement | null>(null);
+  const [tmuxToolbarWidth, setTmuxToolbarWidth] = useState<number | null>(null);
+  const [toolbarLastUsed, setToolbarLastUsed] = useState<ToolbarLastUsed>(() => parseToolbarLastUsed(readStoredValue(TOOLBAR_LAST_USED_STORAGE_KEY)));
+  const [toolbarCustomizeOpen, setToolbarCustomizeOpen] = useState(false);
+  const [toolbarPins, setToolbarPins] = useState<ToolbarActionId[]>(() => parseToolbarPins(readStoredValue(TOOLBAR_PINNED_STORAGE_KEY)));
+  // Latest values for back-to-back taps that land before a re-render.
+  const toolbarPinsRef = useRef(toolbarPins);
+  const toolbarLastUsedRef = useRef(toolbarLastUsed);
   const tmuxFollowTimersRef = useRef<number[]>([]);
   const manualCaptureControllerRef = useRef<AbortController | null>(null);
   const manualCaptureOwnerRef = useRef<number | null>(null);
@@ -453,7 +476,6 @@ export function App() {
   });
   // Same strip under the input box on phones, where the soft keyboard has no Esc/Ctrl/arrows.
   const showTmuxKeyStrip = showRawTerminalShortcuts || (showTmuxSendForm && mobileRawInput);
-  const tmuxViewModeLabel = TMUX_VIEW_MODE_LABELS[tmuxViewMode];
   const selectedTmuxEntry = useMemo(() => findTmuxPane(tmuxSessions, selectedTmux), [selectedTmux, tmuxSessions]);
   const railTmuxPanes = useMemo(
     () => filterTmuxAgentPanes(tmuxSessions, showAllTmuxPanes, selectedTmux),
@@ -468,6 +490,68 @@ export function App() {
   // tmux-hide-window runs against this host's tmux, so container (shim-prefixed) panes can't snooze.
   const windowSnoozeAvailable = !demoMode && Boolean(status?.windowSnooze);
   const selectedTmuxSnoozable = windowSnoozeAvailable && Boolean(selectedTmuxEntry?.paneId) && selectedTmuxEntry?.name === selectedTmuxEntry?.paneId;
+  const toolbarItems: ToolbarActionItem[] = [
+    {
+      id: "view",
+      menuLabel: `Switch to ${terminalActive ? "TTY" : "Raw"} view`,
+      ariaLabel: `Switch to ${terminalActive ? "TTY" : "Raw"} view`,
+      title: `Switch to ${terminalActive ? "TTY" : "Raw"} view`,
+      icon: terminalActive ? <Keyboard aria-hidden="true" size={15} /> : <Monitor aria-hidden="true" size={15} />,
+      disabled: !selectedTmux,
+      onClick: () => selectTmuxViewMode(terminalActive ? "tty" : "raw")
+    },
+    {
+      id: "stop",
+      menuLabel: "Stop task",
+      ariaLabel: "Stop tmux task",
+      title: "Stop tmux task (Esc or Ctrl-C)",
+      icon: <CircleStop aria-hidden="true" size={15} />,
+      disabled: !selectedTmux,
+      onClick: () => interruptTmux().catch(reportError(setError))
+    },
+    {
+      id: "pin",
+      menuLabel: selectedTmuxPinned ? "Unpin pane" : "Pin pane",
+      ariaLabel: selectedTmuxPinned ? "Unpin this pane" : "Pin this pane",
+      title: selectedTmuxPinned ? "Unpin this pane" : "Pin this pane to the top of the list",
+      icon: <Pin aria-hidden="true" fill={selectedTmuxPinned ? "currentColor" : "none"} size={15} />,
+      disabled: !selectedTmux,
+      className: selectedTmuxPinned ? "active" : "",
+      pressed: selectedTmuxPinned,
+      onClick: () => toggleTmuxSessionPin(selectedTmux)
+    },
+    {
+      id: "refresh",
+      menuLabel: "Refresh",
+      ariaLabel: "Refresh sessions and current view",
+      title: "Refresh sessions and current view",
+      icon: <RefreshCw aria-hidden="true" size={15} />,
+      disabled: manualCaptureActive,
+      busy: manualCaptureActive,
+      onClick: refreshTmux
+    },
+    {
+      id: "close",
+      menuLabel: "Close pane",
+      ariaLabel: "Close pane",
+      title: "Close pane (kills its process)",
+      icon: <SquareX aria-hidden="true" size={15} />,
+      disabled: !selectedTmuxEntry?.paneId,
+      onClick: () => closeSelectedTmuxPane().catch(reportError(setError))
+    },
+    ...(windowSnoozeAvailable ? [{
+      id: "snooze" as const,
+      menuLabel: "Snooze window",
+      ariaLabel: "Snooze this pane's window",
+      title: "Snooze window: hide it until a wake time",
+      icon: <AlarmClock aria-hidden="true" size={15} />,
+      disabled: !selectedTmuxSnoozable,
+      onClick: openWindowSnoozeSheet
+    }] : [])
+  ];
+  const availableToolbarIds = toolbarItems.map((item) => item.id);
+  const maxInlineToolbar = maxInlineToolbarActions(tmuxToolbarWidth);
+  const inlineToolbar = inlineToolbarActions(availableToolbarIds, toolbarPins, toolbarLastUsed, maxInlineToolbar);
   const windowSnoozeEntry = windowSnoozeTarget ? findTmuxPane(tmuxSessions, windowSnoozeTarget) : undefined;
   // tpal reads this host's panes too; its list and run calls only take local pane ids.
   const paneActionsAvailable = !demoMode && Boolean(status?.paneActions);
@@ -656,6 +740,19 @@ export function App() {
     } finally {
       tmuxCapturePrefetchRef.current.delete(session);
     }
+  }, []);
+
+  // The inline buttons may take at most half the toolbar, so track its width.
+  useEffect(() => {
+    const toolbar = tmuxToolbarRef.current;
+    if (!toolbar || typeof ResizeObserver === "undefined") {
+      return;
+    }
+    const measure = () => setTmuxToolbarWidth(toolbar.clientWidth);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(toolbar);
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -1684,6 +1781,24 @@ export function App() {
       });
   }
 
+  function runToolbarItem(item: ToolbarActionItem) {
+    const next = { ...toolbarLastUsedRef.current, [item.id]: Date.now() };
+    toolbarLastUsedRef.current = next;
+    setToolbarLastUsed(next);
+    writeStoredJson(TOOLBAR_LAST_USED_STORAGE_KEY, next);
+    item.onClick();
+  }
+
+  function setToolbarPinsAndSave(next: ToolbarActionId[]) {
+    toolbarPinsRef.current = next;
+    setToolbarPins(next);
+    writeStoredJson(TOOLBAR_PINNED_STORAGE_KEY, next);
+  }
+
+  function toggleToolbarPin(id: ToolbarActionId) {
+    setToolbarPinsAndSave(togglePinnedToolbarAction(toolbarPinsRef.current, availableToolbarIds, id, maxInlineToolbar));
+  }
+
   function closeTmuxSettingsMenu() {
     tmuxSettingsMenuRef.current?.removeAttribute("open");
   }
@@ -2548,75 +2663,21 @@ export function App() {
               <Menu size={15} />
             </button>
           </div>
-          <div className={`tmux-terminal-toolbar ${windowSnoozeAvailable ? "with-snooze" : ""}`}>
-            <button
-              aria-label={`Switch to ${terminalActive ? "TTY" : "Raw"} view`}
-              className="tmux-view-toggle"
-              disabled={!selectedTmux}
-              title={`Switch to ${terminalActive ? "TTY" : "Raw"} view`}
-              type="button"
-              onClick={() => selectTmuxViewMode(terminalActive ? "tty" : "raw")}
-            >
-              {terminalActive ? <Keyboard aria-hidden="true" size={15} /> : <Monitor aria-hidden="true" size={15} />}
-              <span>{tmuxViewModeLabel}</span>
-            </button>
-            <button
-              aria-label="Stop tmux task"
-              disabled={!selectedTmux}
-              title="Stop tmux task (Esc or Ctrl-C)"
-              type="button"
-              onClick={() => interruptTmux().catch(reportError(setError))}
-            >
-              <CircleStop aria-hidden="true" size={15} />
-            </button>
-            <button
-              aria-label={selectedTmuxPinned ? "Unpin this pane" : "Pin this pane"}
-              aria-pressed={selectedTmuxPinned}
-              className={selectedTmuxPinned ? "active" : ""}
-              disabled={!selectedTmux}
-              title={selectedTmuxPinned ? "Unpin this pane" : "Pin this pane to the top of the list"}
-              type="button"
-              onClick={() => toggleTmuxSessionPin(selectedTmux)}
-            >
-              <Pin aria-hidden="true" fill={selectedTmuxPinned ? "currentColor" : "none"} size={15} />
-            </button>
-            <button
-              aria-label="Refresh sessions and current view"
-              aria-busy={manualCaptureActive}
-              disabled={manualCaptureActive}
-              title="Refresh sessions and current view"
-              type="button"
-              onClick={refreshTmux}
-            >
-              <RefreshCw size={15} /> <span>Refresh</span>
-            </button>
-            <button
-              aria-label="Close pane"
-              className="tmux-close-pane-button"
-              disabled={!selectedTmuxEntry?.paneId}
-              title="Close pane (kills its process)"
-              type="button"
-              onClick={() => closeSelectedTmuxPane().catch(reportError(setError))}
-            >
-              <SquareX aria-hidden="true" size={15} />
-            </button>
-            {windowSnoozeAvailable && (
-              <button
-                aria-label="Snooze this pane's window"
-                disabled={!selectedTmuxSnoozable}
-                title="Snooze window: hide it until a wake time"
-                type="button"
-                onClick={openWindowSnoozeSheet}
-              >
-                <AlarmClock aria-hidden="true" size={15} />
-              </button>
-            )}
+          <div className="tmux-terminal-toolbar" ref={tmuxToolbarRef}>
+            <ToolbarInlineButtons items={toolbarItems} pinnedIds={inlineToolbar.pinned} recentIds={inlineToolbar.recent} onRun={runToolbarItem} />
             <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
             <details className="tmux-view-menu tmux-settings-menu" ref={tmuxSettingsMenuRef}>
               <summary aria-label="More options" title="More options">
                 <Ellipsis aria-hidden="true" size={16} />
               </summary>
               <div className="tmux-view-menu-content tmux-settings-menu-content" role="menu">
+                <ToolbarMenuSection
+                  canKeep={(id) => canKeepInToolbar(availableToolbarIds, toolbarPins, id, maxInlineToolbar)}
+                  items={toolbarItems}
+                  pins={toolbarPins}
+                  onRun={(item) => { closeTmuxSettingsMenu(); runToolbarItem(item); }}
+                  onTogglePin={toggleToolbarPin}
+                />
                 {(paneActionsAvailable || selectedTmuxRenamable) && (
                   <div className="tmux-view-menu-section tmux-settings-actions">
                     <span>This pane</span>
@@ -2710,6 +2771,12 @@ export function App() {
                     </button>
                   </div>
                 )}
+                <div className="tmux-view-menu-section tmux-settings-actions">
+                  <button role="menuitem" type="button" onClick={() => { closeTmuxSettingsMenu(); setToolbarCustomizeOpen(true); }}>
+                    <SlidersHorizontal size={15} />
+                    <span>Customize toolbar…</span>
+                  </button>
+                </div>
               </div>
             </details>
           </div>
@@ -2860,6 +2927,15 @@ export function App() {
           snooze={(duration) => snoozeTmuxWindow(windowSnoozeEntry.name, duration)}
           wake={() => wakeTmuxWindow(windowSnoozeEntry.name)}
           onClose={() => setWindowSnoozeTarget("")}
+        />
+      )}
+      {toolbarCustomizeOpen && (
+        <ToolbarCustomizeSheet
+          items={toolbarItems}
+          maxInline={maxInlineToolbar}
+          pins={toolbarPins}
+          onChangePins={setToolbarPinsAndSave}
+          onClose={() => setToolbarCustomizeOpen(false)}
         />
       )}
       {newAgentOpen && (
