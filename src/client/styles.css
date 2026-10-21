@@ -1336,8 +1336,7 @@ textarea:focus {
 }
 
 .tmux-terminal-toolbar {
-  display: grid;
-  grid-template-columns: minmax(0, auto) 34px 34px auto 34px minmax(0, 1fr) 34px;
+  display: flex;
   gap: 8px;
   align-items: center;
   height: 54px;
@@ -1345,26 +1344,10 @@ textarea:focus {
   padding: 0 8px;
 }
 
-.tmux-terminal-toolbar.with-snooze {
-  grid-template-columns: minmax(0, auto) 34px 34px auto 34px 34px minmax(0, 1fr) 34px;
-}
-
 .tmux-terminal-toolbar button.active,
 .tmux-view-menu[open] summary {
   background: var(--accent);
   color: var(--accent-text);
-}
-
-.tmux-view-toggle {
-  min-width: 0;
-  max-width: 150px;
-  padding: 0 10px;
-}
-
-.tmux-view-toggle span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .tmux-view-menu {
@@ -1637,8 +1620,28 @@ textarea:focus {
   display: none;
 }
 
+/* Icon-only buttons; the controller keeps them within half the toolbar width. */
 .tmux-terminal-toolbar > button {
-  padding: 0 8px;
+  position: relative;
+  flex: none;
+  width: 36px;
+  padding: 0;
+}
+
+/* A small dot marks a button the owner pinned, without costing width. */
+.tmux-terminal-toolbar > button.kept::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.tmux-terminal-toolbar > .tmux-terminal-status {
+  flex: 1 1 0;
 }
 
 .tmux-close-pane-button:not(:disabled):hover {
@@ -1943,25 +1946,16 @@ textarea:focus {
 
   .tmux-terminal-toolbar {
     flex: none;
-    grid-template-columns: repeat(5, 36px) minmax(0, 1fr) 36px;
     gap: 6px;
     height: 36px;
     margin: 0 0 4px;
     padding: 0;
   }
 
-  .tmux-terminal-toolbar.with-snooze {
-    grid-template-columns: repeat(6, 36px) minmax(0, 1fr) 36px;
-  }
-
   .tmux-terminal-toolbar > button {
     width: 36px;
     height: 36px;
     padding: 0;
-  }
-
-  .tmux-terminal-toolbar > button span {
-    display: none;
   }
 
   .tmux-terminal-status {
@@ -2417,4 +2411,90 @@ textarea:focus {
     padding-bottom: calc(14px + var(--atw-safe-bottom));
     border-radius: 14px 14px 0 0;
   }
+}
+
+.tmux-settings-menu {
+  flex: none;
+}
+
+.tmux-toolbar-menu-row {
+  display: flex;
+  gap: 6px;
+}
+
+.tmux-toolbar-menu-row > button:first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.tmux-toolbar-menu-row > button:last-child {
+  flex: none;
+  justify-content: center;
+  width: 34px;
+  padding: 0;
+}
+
+.tmux-toolbar-menu-hint,
+.toolbar-customize-hint {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.toolbar-customize-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.toolbar-customize-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 40px;
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-control);
+}
+
+.toolbar-customize-list li.dragging {
+  box-shadow: 0 6px 18px var(--shadow-strong);
+}
+
+.toolbar-customize-list li > button {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-control);
+}
+
+.toolbar-customize-list li > button:disabled {
+  opacity: 0.35;
+}
+
+/* touch-action only on the grip so the rest of the sheet still scrolls. */
+.toolbar-customize-list .toolbar-customize-grip {
+  cursor: grab;
+  touch-action: none;
+}
+
+.toolbar-customize-name {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.toolbar-customize-name small {
+  color: var(--text-muted);
+  font-size: 10px;
 }

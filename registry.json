@@ -103,6 +103,9 @@
         { "path": "src/client/tmuxOperationGuards.ts", "type": "registry:file", "target": "~/src/client/tmuxOperationGuards.ts" },
         { "path": "src/client/tmuxSessionTarget.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionTarget.ts" },
         { "path": "src/client/tmuxViewPreferences.ts", "type": "registry:file", "target": "~/src/client/tmuxViewPreferences.ts" },
+        { "path": "src/client/TmuxToolbarButtons.tsx", "type": "registry:file", "target": "~/src/client/TmuxToolbarButtons.tsx" },
+        { "path": "src/client/ToolbarCustomizeSheet.tsx", "type": "registry:file", "target": "~/src/client/ToolbarCustomizeSheet.tsx" },
+        { "path": "src/client/tmuxToolbarActions.ts", "type": "registry:file", "target": "~/src/client/tmuxToolbarActions.ts" },
         { "path": "src/client/__tests__/browserNotifications.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/browserNotifications.test.ts" },
         { "path": "src/client/__tests__/clipboard.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/clipboard.test.ts" },
         { "path": "src/client/__tests__/accessToken.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/accessToken.test.ts" },
@@ -129,6 +132,7 @@
         { "path": "src/client/__tests__/tmuxOperationGuards.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxOperationGuards.test.ts" },
         { "path": "src/client/__tests__/tmuxSessionTarget.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxSessionTarget.test.ts" },
         { "path": "src/client/__tests__/tmuxViewPreferences.test.ts", "type": "registry:file", "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts" },
+        { "path": "src/client/__tests__/tmuxToolbarActions.test.tsx", "type": "registry:file", "target": "~/src/client/__tests__/tmuxToolbarActions.test.tsx" },
         { "path": "src/server/agents.ts", "type": "registry:file", "target": "~/src/server/agents.ts" },
         { "path": "src/server/agentStartName.ts", "type": "registry:file", "target": "~/src/server/agentStartName.ts" },
         { "path": "src/server/paneAgents.ts", "type": "registry:file", "target": "~/src/server/paneAgents.ts" },
@@ -539,6 +543,21 @@
           "target": "~/src/client/tmuxViewPreferences.ts"
         },
         {
+          "path": "src/client/TmuxToolbarButtons.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TmuxToolbarButtons.tsx"
+        },
+        {
+          "path": "src/client/ToolbarCustomizeSheet.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/ToolbarCustomizeSheet.tsx"
+        },
+        {
+          "path": "src/client/tmuxToolbarActions.ts",
+          "type": "registry:file",
+          "target": "~/src/client/tmuxToolbarActions.ts"
+        },
+        {
           "path": "src/client/__tests__/browserNotifications.test.ts",
           "type": "registry:file",
           "target": "~/src/client/__tests__/browserNotifications.test.ts"
@@ -667,6 +686,11 @@
           "path": "src/client/__tests__/tmuxViewPreferences.test.ts",
           "type": "registry:file",
           "target": "~/src/client/__tests__/tmuxViewPreferences.test.ts"
+        },
+        {
+          "path": "src/client/__tests__/tmuxToolbarActions.test.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/__tests__/tmuxToolbarActions.test.tsx"
         },
         {
           "path": "src/server/agents.ts",
