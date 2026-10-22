@@ -606,4 +606,21 @@ describe("color theme CSS", () => {
     expect(utilityRule).toContain("color: var(--text-control)");
     expect(utilityRule).toContain("border: 1px solid var(--border-strong)");
   });
+
+  it("scrolls TTY lines sideways only when they are not wrapped to the phone width", () => {
+    const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
+    const scrolling = extractBalancedCssBlock(css, "\n.tmux-output {\n  margin: 0;").text;
+    const wrapped = extractBalancedCssBlock(css, ".tmux-output[data-wrap] {").text;
+    const shell = extractBalancedCssBlock(css, "\n.tmux-output-shell {").text;
+    const table = extractBalancedCssBlock(css, "\n.tmux-output-table-scroll {").text;
+
+    expect(scrolling).toContain("white-space: pre;");
+    expect(scrolling).not.toContain("overflow-x: hidden");
+    expect(wrapped).toContain("white-space: pre-wrap;");
+    expect(wrapped).toContain("overflow-wrap: anywhere;");
+    expect(wrapped).toContain("overflow-x: hidden;");
+    expect(wrapped).toContain("overscroll-behavior-x: none;");
+    expect(shell).toContain("overflow: clip;");
+    expect(table).toContain("overflow-x: auto;");
+  });
 });

@@ -10,11 +10,13 @@ type TmuxTtyViewProps = {
   output: string;
   sidebar?: TmuxCaptureDto["sidebar"];
   theme?: ColorTheme;
+  // The pane fits the screen: wrap leftover wide lines instead of scrolling sideways.
+  wrapLines?: boolean;
   onScroll: (event: UIEvent<HTMLElement>) => void;
 };
 
 export const TmuxTtyView = forwardRef<HTMLElement, TmuxTtyViewProps>(function TmuxTtyView(
-  { output, sidebar, theme = "dark", onScroll },
+  { output, sidebar, theme = "dark", wrapLines = false, onScroll },
   ref
 ) {
   const [mobilePane, setMobilePane] = useState<"terminal" | "details">("terminal");
@@ -86,7 +88,7 @@ export const TmuxTtyView = forwardRef<HTMLElement, TmuxTtyViewProps>(function Tm
 
   if (!sidebar) {
     return (
-      <pre ref={assignTerminal} className="tmux-output" onScroll={onScroll}>
+      <pre ref={assignTerminal} className="tmux-output" data-wrap={wrapLines ? "" : undefined} onScroll={onScroll}>
         <TmuxOutputLines output={terminalOutput} theme={theme} />
       </pre>
     );

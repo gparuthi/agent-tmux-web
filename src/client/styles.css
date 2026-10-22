@@ -1076,6 +1076,15 @@ textarea:focus {
   line-height: 1.5;
 }
 
+/* The pane fits the screen, so nothing is wider than the box: no sideways pan or rubber-band at all. */
+.tmux-output[data-wrap] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+  touch-action: pan-y;
+}
+
 .timeline-card pre {
   padding: 12px;
 }
@@ -1709,6 +1718,8 @@ textarea:focus {
 
 .tmux-output-shell {
   position: relative;
+  overflow: hidden;
+  overflow: clip;
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -1752,6 +1763,18 @@ textarea:focus {
 
 .tmux-output-shell > .tmux-terminal {
   font-size: 12px;
+}
+
+.tmux-width-hint {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-base) 80%, transparent);
+  color: var(--text-muted);
+  font-size: 11px;
+  pointer-events: none;
 }
 
 .tmux-jump-bottom {

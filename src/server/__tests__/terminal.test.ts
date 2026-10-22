@@ -92,6 +92,20 @@ describe("browser tmux terminal helpers", () => {
     );
   });
 
+  it("adds the read-only client flag, which never forwards keys but still sizes the window", () => {
+    const target = { baseSession: "main", rawSession: "atw-raw-view1a2b", windowId: "@16", paneId: "%38" };
+
+    expect(buildTmuxGroupedAttachShellCommand(target, { readOnly: true }, { cols: 47, rows: 50 })).toBe(
+      "stty cols 47 rows 50; tmux new-session -f active-pane,read-only -t main -s atw-raw-view1a2b ';' "
+      + "set-option -t atw-raw-view1a2b destroy-unattached on ';' "
+      + "select-window -t atw-raw-view1a2b:@16 ';' "
+      + "select-pane -t '%38'"
+    );
+    expect(buildTmuxGroupedAttachShellCommand(target, { ignoreSize: true, readOnly: true })).toContain("-f active-pane,ignore-size,read-only ");
+    expect(isTmuxRawSessionName("atw-raw-view1a2b")).toBe(true);
+    expect(isTmuxRawSessionName("dk--box--atw-raw-view1a2b")).toBe(true);
+  });
+
   it("routes grouped attaches for shimmed container sessions with in-container ids", () => {
     expect(buildTmuxGroupedAttachShellCommand({
       baseSession: "dk--box--main",

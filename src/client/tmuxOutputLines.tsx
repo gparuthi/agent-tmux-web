@@ -156,9 +156,9 @@ function TmuxOutputTable({ columns, children }: { columns: number; children: Rea
   );
 }
 
-// Reads layout only on mount and resize, never per capture refresh.
-function measureTableFrame(frame: HTMLElement): TableMetrics {
-  const style = window.getComputedStyle(frame);
+// Width of one monospace column in `host`'s font; cached per font so repeat reads cost nothing.
+export function measureMonoChar(host: HTMLElement): { charWidth: number; baseFontSize: number } {
+  const style = window.getComputedStyle(host);
   const baseFontSize = Number.parseFloat(style.fontSize) || 12;
   const key = `${style.fontFamily}|${baseFontSize}`;
   let charWidth = charWidthCache.get(key);
@@ -166,12 +166,17 @@ function measureTableFrame(frame: HTMLElement): TableMetrics {
     const probe = document.createElement("span");
     probe.textContent = "0".repeat(100);
     probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font:inherit;";
-    frame.append(probe);
+    host.append(probe);
     charWidth = probe.getBoundingClientRect().width / 100 || baseFontSize * 0.6;
     probe.remove();
     charWidthCache.set(key, charWidth);
   }
-  return { available: frame.clientWidth, charWidth, baseFontSize };
+  return { charWidth, baseFontSize };
+}
+
+// Reads layout only on mount and resize, never per capture refresh.
+function measureTableFrame(frame: HTMLElement): TableMetrics {
+  return { available: frame.clientWidth, ...measureMonoChar(frame) };
 }
 
 function sameMetrics(left: TableMetrics, right: TableMetrics): boolean {

@@ -31,4 +31,12 @@ describe("TmuxTtyView", () => {
     expect(html).toContain("<pre class=\"tmux-output\"");
     expect(html).not.toContain("tmux-opencode-layout");
   });
+
+  it("marks the output for wrapping only when the pane fits the screen", () => {
+    const wrapped = renderToStaticMarkup(<TmuxTtyView onScroll={vi.fn()} output="shell output" wrapLines />);
+    const scrolling = renderToStaticMarkup(<TmuxTtyView onScroll={vi.fn()} output="shell output" />);
+
+    expect(wrapped).toContain("class=\"tmux-output\" data-wrap=\"\"");
+    expect(scrolling).not.toContain("data-wrap");
+  });
 });

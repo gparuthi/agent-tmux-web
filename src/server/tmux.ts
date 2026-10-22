@@ -64,6 +64,8 @@ export type TmuxPaneMetadata = {
 
 type TmuxPaneView = {
   output: string;
+  // The pane's width in columns, so the phone can tell whether its own width still applies.
+  paneWidth?: number;
   outputAppend?: true;
   outputRevision?: string;
   outputUnchanged?: true;
@@ -1129,9 +1131,12 @@ export async function captureTmuxPaneView(
   const metadata = await inspectTmuxPane(session).catch(() => null);
   const escapes = Boolean(options.ansi);
   const output = await captureTmuxPane(session, lines, Boolean(metadata && !metadata.alternateScreen), escapes);
-  const view = metadata && isOpenCodeFullTuiPane(metadata)
-    ? splitOpenCodeTuiCapture(output, metadata.width, metadata.height) ?? { output }
-    : { output };
+  const view: TmuxPaneView = {
+    ...(metadata && isOpenCodeFullTuiPane(metadata)
+      ? splitOpenCodeTuiCapture(output, metadata.width, metadata.height) ?? { output }
+      : { output }),
+    ...(metadata ? { paneWidth: metadata.width } : {})
+  };
   if (!metadata || !isOpenCodeTuiPane(metadata)) {
     return view;
   }

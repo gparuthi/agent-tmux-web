@@ -117,6 +117,7 @@ export type TmuxSessionStatusDto = {
 export type TmuxCaptureDto = {
   session: string;
   output: string;
+  paneWidth?: number;
   outputAppend?: true;
   outputRevision?: string;
   outputUnchanged?: true;

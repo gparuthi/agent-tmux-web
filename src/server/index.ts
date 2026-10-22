@@ -1,4 +1,4 @@
-import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import http from "node:http";
 import path from "node:path";
@@ -27,11 +27,11 @@ import { CodexBridge } from "./codexBridge.js";
 import { readTmuxPaneAgents } from "./paneAgents.js";
 import {
   buildBrowserRawTerminalPolicy,
-  buildProcessTtyListArgs,
-  buildPtyResizeArgs,
-  buildScriptSpawn,
   buildTmuxGroupedAttachShellCommand,
-  findRawTerminalPtyTty,
+  closeTerminalChild,
+  findRawTerminalPty,
+  resizeTerminalPty,
+  spawnTmuxScriptClient,
   normalizeTerminalSize,
   TMUX_RAW_SESSION_PREFIX
 } from "./terminal.js";
@@ -78,6 +78,7 @@ import { createTmuxFeedbackRouter } from "./tmuxFeedback.js";
 import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
+import { createTmuxViewSizeRouter, TmuxViewSize, VIEW_SIZE_SWEEP_MS } from "./tmuxViewSize.js";
 import { DEFAULT_TMUX_RESIZED_WINDOWS_FILE, TmuxWindowSizeGuard, WINDOW_SIZE_HEAL_MS } from "./tmuxWindowSize.js";
 
 const execFileAsync = promisify(execFile);
@@ -104,6 +105,7 @@ const rawTerminalClients = new Map<string, Map<string, number>>();
 const rawTerminalSessions = new Map<string, { baseSession: string; close: () => void }>();
 const claudePromptTimes = new ClaudePromptTimes();
 const tmuxAutoZoom = new TmuxAutoZoom();
+const tmuxViewSize = new TmuxViewSize();
 const agentRowsCache = new AgentRowsCache();
 const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INPUT_FILE || DEFAULT_TMUX_LAST_INPUT_FILE);
 const tmuxWindowSizeGuard = new TmuxWindowSizeGuard({
@@ -288,6 +290,7 @@ app.get("/api/tmux/sessions", asyncHandler(async (req, res) => {
   // The rail's poll is how a phone that auto-zoomed a pane shows it is still looking.
   if (clientId) {
     tmuxAutoZoom.seen(clientId);
+    tmuxViewSize.seen(clientId);
   }
   res.json({ data: await listTmuxSessionsWithStatus(clientId) });
 }));
@@ -393,6 +396,12 @@ app.use(createWindowSnoozeRouter({
 app.use(createTmuxAutoZoomRouter({
   autoZoom: tmuxAutoZoom,
   listPanes: listTmuxSessions
+}));
+
+app.use(createTmuxViewSizeRouter({
+  viewSize: tmuxViewSize,
+  listPanes: listTmuxSessions,
+  rawActive: (clientId) => rawTerminalClients.has(clientId)
 }));
 
 app.use(createTpalActionsRouter({
@@ -682,6 +691,10 @@ tmuxWss.on("connection", async (socket, req) => {
   }
 
   const size = normalizeTerminalSize(url.searchParams.get("cols"), url.searchParams.get("rows"));
+  // The phone's own TTY size client would count as another viewer of this window.
+  if (browserClientId) {
+    await tmuxViewSize.release(browserClientId).catch(() => undefined);
+  }
   const viewers = await readTmuxViewerCounts(session).catch(() => ({ sessionClients: 0, windowClients: 0 }));
   const rawTerminalPolicy = buildBrowserRawTerminalPolicy({
     hasAttachedClients: viewers.sessionClients > 0,
@@ -702,25 +715,12 @@ tmuxWss.on("connection", async (socket, req) => {
     return;
   }
 
-  const scriptSpawn = buildScriptSpawn(buildTmuxGroupedAttachShellCommand({
+  const child = spawnTmuxScriptClient(buildTmuxGroupedAttachShellCommand({
     baseSession: entry.session,
     rawSession,
     windowId: entry.windowId,
     paneId: paneTarget.paneId
-  }, rawTerminalPolicy.attachOptions, size));
-  // tmux refuses to attach from inside a pane, and the server may have been started from one.
-  const { TMUX: _tmux, TMUX_PANE: _tmuxPane, ...parentEnv } = process.env;
-  const child = spawn(scriptSpawn.file, scriptSpawn.args, {
-    cwd: process.env.HOME ?? process.cwd(),
-    env: {
-      ...parentEnv,
-      TERM: "xterm-256color",
-      COLORTERM: "truecolor",
-      COLUMNS: String(size.cols),
-      LINES: String(size.rows)
-    },
-    stdio: ["pipe", "pipe", "pipe"]
-  });
+  }, rawTerminalPolicy.attachOptions, size), size);
   let ptyTty: string | null = null;
   rawTerminalSessions.set(rawTarget, {
     baseSession: entry.session,
@@ -772,7 +772,7 @@ tmuxWss.on("connection", async (socket, req) => {
       void (async () => {
         ptyTty ??= await findRawTerminalPty(child.pid);
         if (ptyTty) {
-          await execFileAsync("stty", buildPtyResizeArgs(ptyTty, nextSize));
+          await resizeTerminalPty(ptyTty, nextSize);
         }
       })().catch(() => {
         // Best-effort; the tmux client keeps its previous size.
@@ -826,6 +826,7 @@ server.listen(port, bindHost, async () => {
   void sweepOrphanedRawSessions();
   tmuxWatch.startAutoPoll();
   setInterval(() => void tmuxAutoZoom.sweep().catch(() => undefined), AUTO_ZOOM_SWEEP_MS).unref();
+  setInterval(() => void tmuxViewSize.sweep().catch(() => undefined), VIEW_SIZE_SWEEP_MS).unref();
   void tmuxWindowSizeGuard.load().then(() => tmuxWindowSizeGuard.heal()).catch(() => undefined);
   setInterval(() => void tmuxWindowSizeGuard.heal().catch(() => undefined), WINDOW_SIZE_HEAL_MS).unref();
   if (codexAppServerAutostart) {
@@ -866,23 +867,6 @@ function sendTerminalMessage(socket: WebSocket, payload: unknown): void {
   }
 }
 
-function closeTerminalChild(child: ChildProcessWithoutNullStreams): void {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
-  }
-
-  if (child.stdin.writable) {
-    child.stdin.end();
-  }
-
-  const timer = setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGTERM");
-    }
-  }, 500);
-  timer.unref();
-}
-
 function parseTerminalMessage(raw: RawData): Record<string, unknown> | null {
   const text = rawToString(raw);
   try {
@@ -891,14 +875,6 @@ function parseTerminalMessage(raw: RawData): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-async function findRawTerminalPty(scriptPid: number | undefined): Promise<string | null> {
-  if (!scriptPid) {
-    return null;
-  }
-  const { stdout } = await execFileAsync("ps", buildProcessTtyListArgs());
-  return findRawTerminalPtyTty(stdout, scriptPid);
 }
 
 async function resolveTmuxSubmitKey(session: string, requested: unknown): Promise<TmuxSubmitKey> {

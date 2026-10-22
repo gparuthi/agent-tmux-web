@@ -90,6 +90,7 @@ import {
 import { installRawTerminalGestureGuard } from "./rawTerminalGestureGuard.js";
 import { installRawTerminalInputGuard } from "./rawTerminalInputGuard.js";
 import { createRawTerminalSelectionHandler } from "./rawTerminalSelection.js";
+import { useTmuxViewSize, ttyWrapsLines, type TmuxViewSizeSender } from "./tmuxViewSize.js";
 import { followTmuxOutputResize, isTmuxOutputAtBottom, shouldAutoCaptureTmux, TMUX_CAPTURE_POLL_INTERVAL_MS, TMUX_SEND_FOLLOW_DELAYS_MS } from "./tmuxFollow.js";
 import {
   isCurrentTmuxCaptureOwner,
@@ -210,7 +211,7 @@ type TmuxCaptureOptions = {
   source: TmuxCaptureSource;
 };
 
-type CachedTmuxCapture = Pick<TmuxCaptureDto, "output" | "outputRevision" | "sidebar">;
+type CachedTmuxCapture = Pick<TmuxCaptureDto, "output" | "outputRevision" | "sidebar" | "paneWidth">;
 
 const TMUX_VIEW_MODE_LABELS: Record<TmuxViewMode, string> = {
   tty: "TTY",
@@ -372,6 +373,7 @@ export function App() {
   const [selectedTmux, setSelectedTmux] = useState(demoMode ? "agent-demo" : "");
   const [tmuxOutput, setTmuxOutput] = useState(demoMode ? DEMO_TMUX_OUTPUT : "");
   const [tmuxSidebar, setTmuxSidebar] = useState<TmuxCaptureDto["sidebar"]>(demoMode ? DEMO_TMUX_SIDEBAR : undefined);
+  const [tmuxPaneWidth, setTmuxPaneWidth] = useState<number | null>(null);
   const [tmuxInput, setTmuxInput] = useState(demoMode ? "Check the mobile layout and summarize risks" : "");
   const [threadId, setThreadId] = useState("");
   const [activeTurnId, setActiveTurnId] = useState("");
@@ -710,6 +712,7 @@ export function App() {
       if (!sameTmuxCaptureContent(previousCapture, nextCapture)) {
         setCapturedTmuxOutput(nextCapture.output, nextCapture.sidebar);
       }
+      setTmuxPaneWidth(nextCapture.paneWidth ?? null);
       return true;
     } finally {
       if (automatic) {
@@ -898,6 +901,24 @@ export function App() {
     document.addEventListener("visibilitychange", followWhenVisible);
     return () => document.removeEventListener("visibilitychange", followWhenVisible);
   }, [autoZoomTarget, mobileRawInput]);
+
+  // On a phone the TTY view asks tmux for a window as wide as the screen, so the agent wraps there.
+  const sendViewSize = useCallback<TmuxViewSizeSender>((body, options) => api(
+    "/api/tmux/view-size",
+    { method: "POST", body: JSON.stringify(body), keepalive: options?.keepalive }
+  ), []);
+  const recaptureViewSize = useCallback((session: string) => captureTmux(session, { source: "follow" }), [captureTmux]);
+  const { cols: tmuxViewCols, hint: tmuxWidthHint } = useTmuxViewSize({
+    enabled: !demoMode && mobileRawInput && selectedTmuxLocalPane && !terminalActive,
+    target: selectedTmux,
+    clientId: BROWSER_CLIENT_ID,
+    measureKey: `${selectedTmux}|${terminalActive}|${tmuxSidebar?.kind ?? ""}`,
+    paneWidth: tmuxPaneWidth,
+    getOutput: () => tmuxOutputRef.current,
+    getShell: () => tmuxCaptureWidthRef.current,
+    send: sendViewSize,
+    recapture: recaptureViewSize
+  });
 
   // A refresh that dropped the selected pane (killed in a terminal or by a tpal action) moves on by the rail's rule.
   const previousTmuxSessionsRef = useRef(tmuxSessions);
@@ -2539,6 +2560,7 @@ export function App() {
       return false;
     }
     setCapturedTmuxOutput(cached.output, cached.sidebar);
+    setTmuxPaneWidth(cached.paneWidth ?? null);
     return true;
   }
 
@@ -2547,6 +2569,7 @@ export function App() {
       return true;
     }
     setCapturedTmuxOutput("");
+    setTmuxPaneWidth(null);
     return false;
   }
 
@@ -2927,7 +2950,11 @@ export function App() {
                 output={tmuxOutput}
                 sidebar={tmuxSidebar}
                 theme={colorTheme}
+                wrapLines={ttyWrapsLines(tmuxPaneWidth, tmuxViewCols)}
               />
+            )}
+            {!terminalActive && tmuxWidthHint && (
+              <div className="tmux-width-hint" role="status">Window is wider than this screen</div>
             )}
             {showTmuxJumpToLatest && (
               <button className={`tmux-jump-bottom${tmuxSidebar ? " stream-pane" : ""}`} aria-label="Jump to latest tmux output" title="Jump to latest tmux output" type="button" onClick={jumpTmuxOutputToBottom}>
@@ -3096,7 +3123,8 @@ function resolveTmuxCapture(result: TmuxCaptureDto, previous?: CachedTmuxCapture
         ? `${previous?.output ?? ""}${result.output}`
         : result.output,
     outputRevision: result.outputRevision,
-    sidebar: result.sidebar
+    sidebar: result.sidebar,
+    paneWidth: result.paneWidth
   };
 }
 

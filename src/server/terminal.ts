@@ -1,3 +1,8 @@
+import { execFile, spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
 export type TerminalSize = {
   cols: number;
   rows: number;
@@ -5,6 +10,8 @@ export type TerminalSize = {
 
 export type TmuxAttachOptions = {
   ignoreSize?: boolean;
+  // A client that can never forward keys; it still counts as a sized client for window-size latest.
+  readOnly?: boolean;
 };
 
 // atw never runs resize-window for raw terminals: tmux sizes the window from its clients (window-size latest).
@@ -59,7 +66,7 @@ export function buildTmuxGroupedAttachShellCommand(
   options: TmuxAttachOptions = {},
   size?: TerminalSize
 ): string {
-  const flags = ["active-pane", ...(options.ignoreSize ? ["ignore-size"] : [])].join(",");
+  const flags = ["active-pane", ...(options.ignoreSize ? ["ignore-size"] : []), ...(options.readOnly ? ["read-only"] : [])].join(",");
   const commands = [
     `tmux new-session -f ${flags} -t ${shellQuote(target.baseSession)} -s ${shellQuote(target.rawSession)}`,
     `set-option -t ${shellQuote(target.rawSession)} destroy-unattached on`,
@@ -69,6 +76,9 @@ export function buildTmuxGroupedAttachShellCommand(
   const command = commands.join(" ';' ");
   return size ? `stty cols ${size.cols} rows ${size.rows}; ${command}` : command;
 }
+
+// Grouped sessions that only size a window for a phone's TTY view; they match the raw-session sweep and listing filter.
+export const TMUX_VIEW_SESSION_PREFIX = `${TMUX_RAW_SESSION_PREFIX}view`;
 
 export function isTmuxRawSessionName(name: string): boolean {
   return new RegExp(`(?:^|--)${TMUX_RAW_SESSION_PREFIX}[A-Za-z0-9]+$`).test(name);
@@ -112,6 +122,53 @@ export function findRawTerminalPtyTty(psOutput: string, scriptPid: number): stri
 // Resizing the raw client's pty is a client resize to tmux; resize-window would pin the window instead.
 export function buildPtyResizeArgs(tty: string, size: TerminalSize, platform: NodeJS.Platform = process.platform): string[] {
   return [platform === "darwin" ? "-f" : "-F", tty, "cols", String(size.cols), "rows", String(size.rows)];
+}
+
+// Spawns a tmux client on its own pty at `size`; the script wrapper is the child to signal or close.
+export function spawnTmuxScriptClient(command: string, size: TerminalSize): ChildProcessWithoutNullStreams {
+  const scriptSpawn = buildScriptSpawn(command);
+  // tmux refuses to attach from inside a pane, and the server may have been started from one.
+  const { TMUX: _tmux, TMUX_PANE: _tmuxPane, ...parentEnv } = process.env;
+  return spawn(scriptSpawn.file, scriptSpawn.args, {
+    cwd: process.env.HOME ?? process.cwd(),
+    env: {
+      ...parentEnv,
+      TERM: "xterm-256color",
+      COLORTERM: "truecolor",
+      COLUMNS: String(size.cols),
+      LINES: String(size.rows)
+    },
+    stdio: ["pipe", "pipe", "pipe"]
+  });
+}
+
+export async function findRawTerminalPty(scriptPid: number | undefined): Promise<string | null> {
+  if (!scriptPid) {
+    return null;
+  }
+  const { stdout } = await execFileAsync("ps", buildProcessTtyListArgs());
+  return findRawTerminalPtyTty(stdout, scriptPid);
+}
+
+export async function resizeTerminalPty(tty: string, size: TerminalSize): Promise<void> {
+  await execFileAsync("stty", buildPtyResizeArgs(tty, size));
+}
+
+export function closeTerminalChild(child: ChildProcessWithoutNullStreams): void {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return;
+  }
+
+  if (child.stdin.writable) {
+    child.stdin.end();
+  }
+
+  const timer = setTimeout(() => {
+    if (child.exitCode === null && child.signalCode === null) {
+      child.kill("SIGTERM");
+    }
+  }, 500);
+  timer.unref();
 }
 
 export function normalizeTerminalSize(cols: unknown, rows: unknown): TerminalSize {

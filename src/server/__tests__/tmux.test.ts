@@ -1006,7 +1006,9 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
     expect(colored).toContain("\u001b[31mRED");
     expect(colored).toContain("\u001b[38;5;208mORANGE");
     expect(colored).toContain("\u001b[38;2;10;200;30mTRUE");
-    const plain = (await captureTmuxPaneView(pane!.name, 50)).output;
+    const view = await captureTmuxPaneView(pane!.name, 50);
+    const plain = view.output;
+    expect(view.paneWidth).toBe(Number((await testTmux(["display-message", "-p", "-t", pane!.name, "#{pane_width}"])).stdout.trim()));
     expect(plain).toMatch(/^RED ORANGE TRUE$/m);
     expect(plain).not.toContain("\u001b");
   });
