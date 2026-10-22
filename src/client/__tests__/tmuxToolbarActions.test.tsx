@@ -52,10 +52,11 @@ describe("toolbar slot selection", () => {
 });
 
 describe("toolbar width cap", () => {
-  it("allows at most four buttons, leaving room for the menu button", () => {
-    expect(maxInlineToolbarActions(null)).toBe(4);
-    expect(maxInlineToolbarActions(390)).toBe(4);
-    expect(maxInlineToolbarActions(1200)).toBe(4);
+  it("fits as many buttons as the row holds, leaving room for the menu button", () => {
+    expect(maxInlineToolbarActions(null)).toBe(all.length);
+    expect(maxInlineToolbarActions(374)).toBe(all.length);
+    expect(maxInlineToolbarActions(1200)).toBe(all.length);
+    expect(maxInlineToolbarActions(300)).toBe(5);
     expect(maxInlineToolbarActions(200)).toBe(3);
     expect(maxInlineToolbarActions(100)).toBe(1);
     expect(maxInlineToolbarActions(60)).toBe(0);

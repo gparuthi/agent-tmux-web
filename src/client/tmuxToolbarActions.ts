@@ -5,7 +5,8 @@ export type ToolbarLastUsed = Partial<Record<ToolbarActionId, number>>;
 export const TOOLBAR_ACTION_ORDER: readonly ToolbarActionId[] = ["view", "stop", "compact", "pin", "refresh", "close", "snooze"];
 export const TOOLBAR_LAST_USED_STORAGE_KEY = "agent-tmux-web.toolbar-last-used";
 export const TOOLBAR_PINNED_STORAGE_KEY = "agent-tmux-web.toolbar-pinned";
-export const MAX_INLINE_TOOLBAR_ACTIONS = 4;
+// As many as fit: the bar is buttons only, so every action gets a slot when there is room.
+export const MAX_INLINE_TOOLBAR_ACTIONS = TOOLBAR_ACTION_ORDER.length;
 export const TOOLBAR_BUTTON_WIDTH_PX = 36;
 export const TOOLBAR_BUTTON_GAP_PX = 8;
 // The pinned/recent separator: 1px line plus its gap.
@@ -62,7 +63,7 @@ export function recentToolbarActions(
     .sort((a, b) => (lastUsed[b] ?? 0) - (lastUsed[a] ?? 0) || TOOLBAR_ACTION_ORDER.indexOf(a) - TOOLBAR_ACTION_ORDER.indexOf(b));
 }
 
-// How many buttons fit in the inline share of the toolbar, capped at four.
+// How many buttons fit beside the "…" menu button.
 export function maxInlineToolbarActions(toolbarWidthPx: number | null): number {
   if (toolbarWidthPx === null || !Number.isFinite(toolbarWidthPx)) {
     return MAX_INLINE_TOOLBAR_ACTIONS;
