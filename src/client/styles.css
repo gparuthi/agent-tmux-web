@@ -1628,16 +1628,17 @@ textarea:focus {
   padding: 0;
 }
 
-/* A small dot marks a button the owner pinned, without costing width. */
+/* A faint ring marks a button the owner pinned, without costing width. */
 .tmux-terminal-toolbar > button.kept::after {
   content: "";
   position: absolute;
   top: 3px;
   right: 3px;
-  width: 5px;
-  height: 5px;
+  box-sizing: border-box;
+  width: 6px;
+  height: 6px;
+  border: 1px solid var(--text-muted);
   border-radius: 50%;
-  background: var(--accent);
 }
 
 .tmux-terminal-toolbar > .tmux-terminal-status {
