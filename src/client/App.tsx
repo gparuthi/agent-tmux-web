@@ -30,7 +30,6 @@ import {
   Moon,
   Paperclip,
   PencilLine,
-  Minimize2,
   Pin,
   Play,
   Plus,
@@ -536,7 +535,7 @@ export function App() {
       menuLabel: "Compact (/compact)",
       ariaLabel: "Compact the agent's conversation",
       title: "Send /compact to free context",
-      icon: <Minimize2 aria-hidden="true" size={15} />,
+      icon: <span aria-hidden="true" className="tmux-toolbar-text-icon">/c</span>,
       disabled: !selectedTmux || !tmuxAgentSupportsCompact(selectedTmuxEntry ? tmuxEntryAgent(selectedTmuxEntry) : null),
       onClick: () => sendTmuxCompact().catch(reportError(setError))
     },

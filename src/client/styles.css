@@ -2657,3 +2657,11 @@ textarea:focus {
   color: var(--text-muted);
   font-size: 10px;
 }
+
+/* Slash-command actions read as the command itself. */
+.tmux-toolbar-text-icon {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
