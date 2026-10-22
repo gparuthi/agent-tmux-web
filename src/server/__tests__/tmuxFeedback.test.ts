@@ -2,7 +2,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 
 import express, { type NextFunction, type Request, type Response } from "express";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TmuxSession } from "../tmux.js";
 import { buildTmuxFeedbackText, createTmuxFeedbackRouter, flattenFeedbackText, resolveFeedbackPane } from "../tmuxFeedback.js";
@@ -59,25 +59,35 @@ describe("tmux feedback endpoint", () => {
   let recorded: string[] = [];
   let override: string | undefined;
   let held: TmuxQueuedMessage | null = null;
+  let panes: TmuxSession[] = [];
+  let startCalls = 0;
+  let readyResult: ((value: boolean) => void) | null = null;
   const PANES = [pane("%1", "Brief"), pane("%2", "Atw"), pane("%3", "Shell", "zsh"), pane("%4", "Plain")];
-  const AGENTS = new Map([["%1", "claude"], ["%2", "claude"]]);
+  const AGENTS = new Map([["%1", "claude"], ["%2", "claude"], ["%9", "claude"]]);
 
   beforeEach(async () => {
     sent = [];
     recorded = [];
     override = undefined;
     held = null;
+    panes = PANES;
+    startCalls = 0;
+    readyResult = null;
     const app = express();
     app.use(express.json());
     app.use(createTmuxFeedbackRouter({
-      listPanes: async () => PANES,
+      listPanes: async () => panes,
       readPaneAgents: async (panes) => new Map(panes.flatMap((entry) => AGENTS.has(entry.name) ? [[entry.name, AGENTS.get(entry.name)!] as const] : [])),
       send: async (target, text) => {
         sent.push({ target, text });
         return held;
       },
       paneOverride: () => override,
-      onSubmitted: (target) => recorded.push(target)
+      onSubmitted: (target) => recorded.push(target),
+      startPane: async () => {
+        startCalls += 1;
+        return { pane: "%9", ready: new Promise<boolean>((resolve) => { readyResult = resolve; }) };
+      }
     }));
     app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
       const record = error as { statusCode?: number; message?: string };
@@ -146,5 +156,71 @@ describe("tmux feedback endpoint", () => {
     expect((await post({ message: "hi", screenshot: "/etc/passwd" })).status).toBe(400);
     expect((await post({ message: "hi", screenshot: "~/.agent-tmux/attachments/../x" })).status).toBe(400);
     expect(sent).toEqual([]);
+  });
+
+  describe("with no Atw pane", () => {
+    beforeEach(() => {
+      panes = PANES.filter((entry) => entry.displayName !== "Atw");
+    });
+
+    it("starts Atw, answers at once, and types only after it is ready", async () => {
+      const result = await post({ message: "hi" });
+      expect(result.status).toBe(200);
+      expect(result.json.data).toEqual({ target: "%9", paneName: "Atw", started: true });
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(sent).toEqual([]);
+      readyResult!(true);
+      await vi.waitFor(() => expect(sent).toEqual([{ target: "%9", text: "Feedback from the Agent Tmux web UI: hi" }]));
+      expect(recorded).toEqual(["%9"]);
+      expect(startCalls).toBe(1);
+    });
+
+    it("shares one in-flight start between posts", async () => {
+      const first = await post({ message: "one" });
+      const second = await post({ message: "two" });
+      expect(first.json.data).toMatchObject({ target: "%9", started: true });
+      expect(second.json.data).toMatchObject({ target: "%9", started: true });
+      expect(startCalls).toBe(1);
+      readyResult!(true);
+      await vi.waitFor(() => expect(sent).toHaveLength(2));
+      expect(sent.map((entry) => entry.target)).toEqual(["%9", "%9"]);
+      expect(sent.map((entry) => entry.text).sort()).toEqual([
+        "Feedback from the Agent Tmux web UI: one",
+        "Feedback from the Agent Tmux web UI: two"
+      ]);
+    });
+
+    it("drops the feedback without throwing when the agent never gets ready", async () => {
+      const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+      try {
+        const result = await post({ message: "lost" });
+        expect(result.status).toBe(200);
+        readyResult!(false);
+        await vi.waitFor(() => expect(error).toHaveBeenCalledWith(expect.stringContaining("lost")));
+        expect(sent).toEqual([]);
+        expect(recorded).toEqual([]);
+      } finally {
+        error.mockRestore();
+      }
+    });
+
+    it("keeps refusing when an override is set", async () => {
+      override = "Missing";
+      const result = await post({ message: "hi" });
+      expect(result.status).toBe(400);
+      expect(String(result.json.error)).toContain('No pane named "Missing"');
+      expect(startCalls).toBe(0);
+    });
+
+    it("uses the new pane normally once it is visible and ready", async () => {
+      await post({ message: "first" });
+      readyResult!(true);
+      await vi.waitFor(() => expect(sent).toHaveLength(1));
+      panes = [...panes, pane("%9", "Atw")];
+      const later = await post({ message: "second" });
+      expect(later.json.data).toEqual({ target: "%9", paneName: "Atw" });
+      expect(startCalls).toBe(1);
+      expect(sent.map((entry) => entry.target)).toEqual(["%9", "%9"]);
+    });
   });
 });

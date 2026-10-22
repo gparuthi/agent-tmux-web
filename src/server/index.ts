@@ -17,7 +17,7 @@ import {
 } from "../shared/api.js";
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, resolveTmuxSessionStatus } from "../shared/tmuxStatus.js";
-import { renameWhenReady } from "./agentStartName.js";
+import { renameWhenReady, waitForAgentPrompt } from "./agentStartName.js";
 import { agentRenamesAfterLaunch, listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, sanitizeNewAgentName, startAgentInTmux } from "./agents.js";
 import { createAuthMiddleware, isAuthorizedWebSocketRequest, parseTailscaleLogins } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
@@ -70,11 +70,11 @@ import {
   resolveUploadRoot,
   saveUploadedFileForClient
 } from "./uploads.js";
-import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, TmuxLastInputStore } from "./tmuxLastInput.js";
+import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, storedTmuxInputAtMs, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTmuxSendRouter, DEFAULT_TMUX_SEND_QUEUE_FILE, TmuxSendQueue, toTmuxQueuedMessageDto } from "./tmuxSendQueue.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
-import { createTmuxFeedbackRouter } from "./tmuxFeedback.js";
+import { createTmuxFeedbackRouter, DEFAULT_FEEDBACK_PANE_NAME } from "./tmuxFeedback.js";
 import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
@@ -427,6 +427,25 @@ app.use(createTmuxFeedbackRouter({
     label: "Atw feedback"
   }),
   paneOverride: () => process.env.ATW_FEEDBACK_PANE,
+  startPane: async () => {
+    const agent = process.env.ATW_FEEDBACK_AGENT || "claude";
+    const name = DEFAULT_FEEDBACK_PANE_NAME;
+    // run.sh cd's into the atw checkout before starting the server.
+    const started = await startAgentInTmux(agent, process.env.ATW_FEEDBACK_CWD || process.cwd(), { name });
+    tmuxLastInput.record(started.pane);
+    const promptOptions = { pane: started.pane, agent, readRows: () => agentRowsCache.rows() };
+    const ready = (async () => {
+      if (!await waitForAgentPrompt(promptOptions)) {
+        return false;
+      }
+      if (agentRenamesAfterLaunch(agent, name)) {
+        await renameWhenReady({ ...promptOptions, name, submitText: (target, text) => sendTmuxText(target, text, true, "enter") });
+        return waitForAgentPrompt(promptOptions);
+      }
+      return true;
+    })();
+    return { pane: started.pane, ready };
+  },
   onSubmitted: (target) => {
     tmuxLastInput.record(target);
     tmuxWatch.startWatch(target, "Atw feedback");
@@ -552,7 +571,7 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       harnessStatuses.get(session.name)
     );
     const lastInputAtMs = latestTmuxInputAtMs(
-      tmuxLastInput.get(session.name),
+      storedTmuxInputAtMs(tmuxLastInput.get(session.name), session.createdAtMs),
       local ? clientActivity.get(session.name) : undefined,
       local ? promptTimes.get(session.name) : undefined
     );

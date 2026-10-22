@@ -28,6 +28,8 @@ export type TmuxFeedbackRouterOptions = {
   // Pane target (%N) or display name from ATW_FEEDBACK_PANE; read per request so it can change live.
   paneOverride?: () => string | undefined;
   onSubmitted?: (target: string) => void;
+  // Starts the agent that answers atw feedback when no pane is named for it; `ready` resolves true once that agent waits at a prompt.
+  startPane?: () => Promise<{ pane: string; ready: Promise<boolean> }>;
 };
 
 // Matches by pane target first, then by display name (case-insensitive); never falls back to another pane.
@@ -72,8 +74,37 @@ export function buildTmuxFeedbackText(message: string, context: TmuxFeedbackCont
   ].filter(Boolean).join(" ");
 }
 
-export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, paneOverride, onSubmitted }: TmuxFeedbackRouterOptions): Router {
+export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, paneOverride, onSubmitted, startPane }: TmuxFeedbackRouterOptions): Router {
   const router = Router();
+  type StartedPane = { pane: string; ready: Promise<boolean> };
+  // Set synchronously so two posts racing the launch share one pane; cleared once it settles.
+  let starting: Promise<StartedPane> | null = null;
+
+  function startOrJoin(): Promise<StartedPane> {
+    if (!starting) {
+      const launch = startPane!();
+      starting = launch;
+      const clear = () => {
+        if (starting === launch) {
+          starting = null;
+        }
+      };
+      launch.then((started) => started.ready.then(clear, clear), clear);
+    }
+    return starting;
+  }
+
+  async function sendWhenReady(entry: StartedPane, text: string): Promise<void> {
+    // Right after launch the pane runs a shell, so nothing is typed before the agent waits at a prompt.
+    if (!await entry.ready.catch(() => false)) {
+      console.error(`The ${DEFAULT_FEEDBACK_PANE_NAME} session never became ready; feedback dropped: ${text}`);
+      return;
+    }
+    const queued = await send(entry.pane, text);
+    if (!queued) {
+      onSubmitted?.(entry.pane);
+    }
+  }
 
   router.post("/api/tmux/feedback", handle(async (req, res) => {
     const body = (req.body ?? {}) as Record<string, unknown>;
@@ -92,7 +123,22 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
       viewport: flattenFeedbackText(rawContext.viewport, CONTEXT_VALUE_MAX_LENGTH),
       build: flattenFeedbackText(rawContext.build, CONTEXT_VALUE_MAX_LENGTH)
     };
-    const pane = resolveFeedbackPane(await listPanes(), paneOverride?.());
+    const override = paneOverride?.();
+    let pane: TmuxSession;
+    try {
+      pane = resolveFeedbackPane(await listPanes(), override);
+    } catch (error) {
+      if (!startPane || override?.trim() || !(error instanceof TmuxRequestError) || !error.message.startsWith("No pane named")) {
+        throw error;
+      }
+      const entry = await startOrJoin();
+      void sendWhenReady(entry, buildTmuxFeedbackText(message, context, screenshot))
+        .catch((sendError: unknown) => console.error("Failed to send feedback to the new Atw session", sendError));
+      res.json({
+        data: { target: entry.pane, paneName: DEFAULT_FEEDBACK_PANE_NAME, started: true } satisfies TmuxFeedbackResultDto
+      });
+      return;
+    }
     // The server's own agent detection decides, so feedback is never typed into a shell.
     const agent = (await readPaneAgents([pane])).get(pane.name) ?? null;
     if (!agent) {

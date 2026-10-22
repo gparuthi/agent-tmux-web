@@ -10,6 +10,7 @@ import {
   parseTmuxClientActivity,
   parseTmuxLastInputFile,
   pruneTmuxLastInput,
+  storedTmuxInputAtMs,
   TmuxLastInputStore
 } from "../tmuxLastInput.js";
 
@@ -94,5 +95,21 @@ describe("tmux last input store", () => {
     const corrupt = new TmuxLastInputStore(corruptPath);
     await corrupt.load();
     expect(corrupt.get("%1")).toBeUndefined();
+  });
+});
+
+describe("stored input of a reused pane id", () => {
+  it("drops a record older than the pane, which belongs to a previous pane", () => {
+    expect(storedTmuxInputAtMs(1000, 2000)).toBeUndefined();
+  });
+
+  it("keeps a record made at or after the pane was created", () => {
+    expect(storedTmuxInputAtMs(2000, 2000)).toBe(2000);
+    expect(storedTmuxInputAtMs(3000, 2000)).toBe(3000);
+  });
+
+  it("keeps the record when the pane creation time is unknown, and passes through no record", () => {
+    expect(storedTmuxInputAtMs(1000, undefined)).toBe(1000);
+    expect(storedTmuxInputAtMs(undefined, 2000)).toBeUndefined();
   });
 });

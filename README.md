@@ -39,6 +39,10 @@ tabs without killing the work.
   disconnects, or goes quiet for a minute.
 - atw never pins a tmux window's size: tmux sizes windows from its clients, and
   a window atw resized is unpinned if left at `window-size manual`.
+- A feedback sheet that types your note plus a screenshot path into the agent
+  session named Atw, and starts one in the atw checkout when none is running
+  (`ATW_FEEDBACK_PANE` pins a pane, `ATW_FEEDBACK_CWD` and `ATW_FEEDBACK_AGENT`
+  choose where and what to start).
 - Built-in launchers for OpenCode, Codex, Claude Code, Gemini CLI, GitHub
   Copilot, Cursor Agent, Qwen Code, Cline, Aider, goose, and Amp.
 - Alphabetical launcher selection with per-device pins for favorites and a `+`

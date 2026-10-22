@@ -93,6 +93,8 @@ export type TmuxFeedbackResultDto = {
   target: string;
   paneName: string;
   queued?: TmuxQueuedMessageDto;
+  // True when no Atw pane existed and one was launched; the text is typed once it is ready.
+  started?: boolean;
 };
 
 // What /api/tmux/rename typed into the pane: the agent's rename command and the cleaned name.

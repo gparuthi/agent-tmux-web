@@ -2260,7 +2260,9 @@ export function App() {
     });
     setFeedbackShot(null);
     setTmuxToast({
-      text: result.data.queued ? `Feedback queued for ${result.data.paneName}; sends when it finishes` : `Feedback sent to ${result.data.paneName}`,
+      text: result.data.started
+        ? `Started ${result.data.paneName} for atw feedback; sends once it is ready`
+        : result.data.queued ? `Feedback queued for ${result.data.paneName}; sends when it finishes` : `Feedback sent to ${result.data.paneName}`,
       error: false
     });
   }

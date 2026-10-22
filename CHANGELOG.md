@@ -8,6 +8,12 @@ uploads, machine-specific service edits, or private signing material.
 
 ## Unreleased
 
+- Feedback from the web UI now starts an agent session named Atw in the atw
+  checkout when none is running, and types the note once it waits at a prompt
+  (`ATW_FEEDBACK_PANE` still pins a pane and never starts one;
+  `ATW_FEEDBACK_CWD` and `ATW_FEEDBACK_AGENT` pick the directory and agent).
+- Zen mode no longer keeps a pane because of a last-input record older than
+  the pane: tmux reuses pane ids after a server restart.
 - Restored the original July 18 TTY renderer with one native browser scroll
   surface and the original OpenCode Terminal/Details panes.
 - Added full persisted OpenCode user/assistant conversation history through

@@ -46,6 +46,11 @@ export function latestTmuxInputAtMs(...values: Array<number | undefined>): numbe
   return known.length > 0 ? Math.max(...known) : undefined;
 }
 
+// Pane ids are reused after a tmux restart, so a record older than the pane belongs to a previous pane.
+export function storedTmuxInputAtMs(stored: number | undefined, paneCreatedAtMs: number | undefined): number | undefined {
+  return stored !== undefined && paneCreatedAtMs !== undefined && stored < paneCreatedAtMs ? undefined : stored;
+}
+
 export function parseTmuxLastInputFile(serialized: string): Map<string, number> {
   try {
     const value: unknown = JSON.parse(serialized);
