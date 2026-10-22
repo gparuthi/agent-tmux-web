@@ -735,10 +735,10 @@ describe("tmux pane listing", () => {
     });
     expect(byName.get("%49")).toMatchObject({ windowName: "\u03c0 - personal", displayName: "pi\tagent", paneTitle: "pi\tagent" });
     expect(byName.get("%27")?.displayName).toBe("[ ! ] Action Required | Review build output | .gp");
-    expect(byName.get("%1")?.displayName).toBe("\u2733 Tmux");
+    expect(byName.get("%1")?.displayName).toBe("Tmux");
     expect(byName.get("%7")?.displayName).toBe("gpmon \u00b7 pane 1");
     expect(byName.get("%31")?.displayName).toBe("brief \u00b7 pane 1");
-    expect(byName.get("%44")?.displayName).toBe("\u2733 Draft network spec");
+    expect(byName.get("%44")?.displayName).toBe("Draft network spec");
     expect(byName.get("%50")?.displayName).toBe("notes");
   });
 
