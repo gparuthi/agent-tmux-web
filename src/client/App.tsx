@@ -55,6 +55,7 @@ import {
   type TmuxActionRunDto,
   type TmuxActionsDto,
   type TmuxCaptureDto,
+  type TmuxFeedbackResultDto,
   type TmuxRenameResultDto,
   type TmuxSendResultDto,
   type TmuxSessionDto,
@@ -144,10 +145,14 @@ import {
   type KeyStripModifier
 } from "./keyStripCombos.js";
 import { TmuxKeyStrip } from "./TmuxKeyStrip.js";
+import { captureFeedbackScreenshot, FEEDBACK_SCREENSHOT_NAME, readBundleId } from "./feedbackScreenshot.js";
+import { FeedbackSheet } from "./FeedbackSheet.js";
 import { NewAgentSheet } from "./NewAgentSheet.js";
 import { WindowSnoozeSheet } from "./WindowSnoozeSheet.js";
 import { RenameSessionSheet } from "./RenameSessionSheet.js";
 import { TmuxActionsSheet } from "./TmuxActionsSheet.js";
+import { TitleMenu, type TitleMenuAction } from "./TitleMenu.js";
+import { useTitleMenuGesture, type TitleMenuAnchor } from "./titleMenuGesture.js";
 import { ToolbarCustomizeSheet } from "./ToolbarCustomizeSheet.js";
 import { ToolbarInlineButtons, ToolbarMenuSection, type ToolbarActionItem } from "./TmuxToolbarButtons.js";
 import {
@@ -384,6 +389,9 @@ export function App() {
   const [tmuxActionsTarget, setTmuxActionsTarget] = useState("");
   const [renameSession, setRenameSession] = useState<{ target: string; agent: string; initialName: string } | null>(null);
   const [tmuxToast, setTmuxToast] = useState<{ text: string; error: boolean } | null>(null);
+  const [titleMenuAnchor, setTitleMenuAnchor] = useState<TitleMenuAnchor | null>(null);
+  const [feedbackShot, setFeedbackShot] = useState<{ blob: Blob | null; error: string } | null>(null);
+  const titleMenuGesture = useTitleMenuGesture(setTitleMenuAnchor);
   const [pinnedTmuxSessionNames, setPinnedTmuxSessionNames] = useState<string[]>(readInitialPinnedTmuxSessionNames);
   const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
   const [tmuxPaneViews, setTmuxPaneViews] = useState<TmuxPaneViews>(readInitialTmuxPaneViews);
@@ -2178,6 +2186,54 @@ export function App() {
     window.setTimeout(() => void loadTmuxSessions().catch(() => undefined), TMUX_RENAME_REFRESH_DELAY_MS);
   }
 
+  async function selectTitleMenuAction(action: TitleMenuAction) {
+    setTitleMenuAnchor(null);
+    if (action === "reload") {
+      // atw has no reload-on-deploy, so this is how a phone picks up a new build.
+      window.location.reload();
+      return;
+    }
+    // Captured before the sheet mounts, so the sheet is not in the picture.
+    setTmuxToast({ text: "Capturing screenshot", error: false });
+    let shot: { blob: Blob | null; error: string };
+    try {
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      shot = { blob: await captureFeedbackScreenshot(), error: "" };
+    } catch (captureError) {
+      shot = { blob: null, error: `No screenshot: ${readApiErrorMessage(captureError)}` };
+    }
+    setTmuxToast(null);
+    setFeedbackShot(shot);
+  }
+
+  async function sendFeedback({ message, screenshot }: { message: string; screenshot: Blob | null }) {
+    if (demoMode) {
+      setFeedbackShot(null);
+      return;
+    }
+    const uploaded = screenshot
+      ? await uploadFileToServer(new File([screenshot], FEEDBACK_SCREENSHOT_NAME, { type: "image/png" }))
+      : null;
+    const result = await api<{ data: TmuxFeedbackResultDto }>("/api/tmux/feedback", {
+      method: "POST",
+      body: JSON.stringify({
+        message,
+        ...(uploaded ? { screenshot: uploaded.reference } : {}),
+        context: {
+          pane: selectedTmuxEntry ? tmuxPaneDisplayName(selectedTmuxEntry) : selectedTmux,
+          view: TMUX_VIEW_MODE_LABELS[tmuxViewMode],
+          viewport: `${document.documentElement.clientWidth}x${window.innerHeight}`,
+          build: readBundleId()
+        }
+      })
+    });
+    setFeedbackShot(null);
+    setTmuxToast({
+      text: result.data.queued ? `Feedback queued for ${result.data.paneName}; sends when it finishes` : `Feedback sent to ${result.data.paneName}`,
+      error: false
+    });
+  }
+
   async function runTmuxAction(target: string, action: TmuxActionDto): Promise<string> {
     const result = await api<{ data: TmuxActionRunDto }>("/api/tmux/actions/run", {
       method: "POST",
@@ -2694,7 +2750,7 @@ export function App() {
       <aside className="tmux-panel">
         <div className="tmux-app-toolbar">
           <div className="tmux-compact-bar">
-            <div className="tmux-title">
+            <div className="tmux-title" {...titleMenuGesture}>
               <img alt="" src="/agent-tmux-logo.png" />
               Agent Tmux
               <EnvironmentBadge environment={status?.environment} />
@@ -2969,6 +3025,18 @@ export function App() {
           snooze={(duration) => snoozeTmuxWindow(windowSnoozeEntry.name, duration)}
           wake={() => wakeTmuxWindow(windowSnoozeEntry.name)}
           onClose={() => setWindowSnoozeTarget("")}
+        />
+      )}
+      {titleMenuAnchor && (
+        <TitleMenu anchor={titleMenuAnchor} onSelect={(action) => void selectTitleMenuAction(action)} onClose={() => setTitleMenuAnchor(null)} />
+      )}
+      {feedbackShot && (
+        <FeedbackSheet
+          paneName={selectedTmuxEntry ? tmuxPaneDisplayName(selectedTmuxEntry) : selectedTmux}
+          screenshot={feedbackShot.blob}
+          screenshotError={feedbackShot.error}
+          send={sendFeedback}
+          onClose={() => setFeedbackShot(null)}
         />
       )}
       {toolbarCustomizeOpen && (

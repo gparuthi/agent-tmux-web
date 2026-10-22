@@ -88,6 +88,13 @@ export type TmuxActionRunDto = {
   output: string;
 };
 
+// What /api/tmux/feedback did: the pane it targeted and whether atw held the text for a busy agent.
+export type TmuxFeedbackResultDto = {
+  target: string;
+  paneName: string;
+  queued?: TmuxQueuedMessageDto;
+};
+
 // What /api/tmux/rename typed into the pane: the agent's rename command and the cleaned name.
 export type TmuxRenameResultDto = {
   target: string;

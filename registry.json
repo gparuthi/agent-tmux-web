@@ -14,6 +14,7 @@
         "@xterm/addon-web-links@0.13.0-beta.291",
         "@xterm/xterm@6.1.0-beta.291",
         "express@^5.2.1",
+        "html2canvas@^1.4.1",
         "lucide-react@^0.561.0",
         "react@^19.2.3",
         "react-dom@^19.2.3",
@@ -63,6 +64,11 @@
         { "path": "src/client/RenameSessionSheet.tsx", "type": "registry:file", "target": "~/src/client/RenameSessionSheet.tsx" },
         { "path": "src/server/tmuxRename.ts", "type": "registry:file", "target": "~/src/server/tmuxRename.ts" },
         { "path": "src/shared/tmuxRename.ts", "type": "registry:file", "target": "~/src/shared/tmuxRename.ts" },
+        { "path": "src/client/FeedbackSheet.tsx", "type": "registry:file", "target": "~/src/client/FeedbackSheet.tsx" },
+        { "path": "src/client/TitleMenu.tsx", "type": "registry:file", "target": "~/src/client/TitleMenu.tsx" },
+        { "path": "src/client/feedbackScreenshot.ts", "type": "registry:file", "target": "~/src/client/feedbackScreenshot.ts" },
+        { "path": "src/client/titleMenuGesture.ts", "type": "registry:file", "target": "~/src/client/titleMenuGesture.ts" },
+        { "path": "src/server/tmuxFeedback.ts", "type": "registry:file", "target": "~/src/server/tmuxFeedback.ts" },
         { "path": "src/server/agentRows.ts", "type": "registry:file", "target": "~/src/server/agentRows.ts" },
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
@@ -218,6 +224,7 @@
         "@xterm/addon-web-links@0.13.0-beta.291",
         "@xterm/xterm@6.1.0-beta.291",
         "express@^5.2.1",
+        "html2canvas@^1.4.1",
         "lucide-react@^0.561.0",
         "react@^19.2.3",
         "react-dom@^19.2.3",
@@ -341,6 +348,31 @@
           "path": "src/shared/tmuxRename.ts",
           "type": "registry:file",
           "target": "~/src/shared/tmuxRename.ts"
+        },
+        {
+          "path": "src/client/FeedbackSheet.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/FeedbackSheet.tsx"
+        },
+        {
+          "path": "src/client/TitleMenu.tsx",
+          "type": "registry:file",
+          "target": "~/src/client/TitleMenu.tsx"
+        },
+        {
+          "path": "src/client/feedbackScreenshot.ts",
+          "type": "registry:file",
+          "target": "~/src/client/feedbackScreenshot.ts"
+        },
+        {
+          "path": "src/client/titleMenuGesture.ts",
+          "type": "registry:file",
+          "target": "~/src/client/titleMenuGesture.ts"
+        },
+        {
+          "path": "src/server/tmuxFeedback.ts",
+          "type": "registry:file",
+          "target": "~/src/server/tmuxFeedback.ts"
         },
         {
           "path": "src/server/agentRows.ts",

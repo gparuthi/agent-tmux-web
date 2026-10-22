@@ -234,6 +234,10 @@ button:disabled {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 800;
+  /* A long press opens the title menu, so no iOS callout or text selection. */
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .environment-badge {
@@ -2274,6 +2278,73 @@ textarea:focus {
 .new-agent-start:disabled {
   opacity: 0.6;
   cursor: default;
+}
+
+.title-menu {
+  position: fixed;
+  z-index: 60;
+  display: grid;
+  min-width: 168px;
+  padding: 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-card);
+  box-shadow: 0 12px 32px var(--shadow);
+}
+
+.title-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: left;
+}
+
+.title-menu button:hover,
+.title-menu button:focus-visible {
+  background: var(--surface-control-hover);
+  outline: none;
+}
+
+.feedback-sheet-target {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.feedback-sheet-text {
+  /* 16px stops iOS zooming the page on focus. */
+  font-size: 16px;
+  height: 120px;
+}
+
+.feedback-sheet-shot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.feedback-sheet-shot input {
+  flex: 0 0 auto;
+  width: auto;
+  height: auto;
+}
+
+.feedback-sheet-shot img {
+  width: 44px;
+  height: 44px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  object-fit: cover;
+  object-position: top;
 }
 
 .window-snooze-presets {

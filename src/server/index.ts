@@ -74,6 +74,7 @@ import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivi
 import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTmuxSendRouter, DEFAULT_TMUX_SEND_QUEUE_FILE, TmuxSendQueue, toTmuxQueuedMessageDto } from "./tmuxSendQueue.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
+import { createTmuxFeedbackRouter } from "./tmuxFeedback.js";
 import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
@@ -404,6 +405,23 @@ app.use(createTmuxRenameRouter({
   readPaneAgents: readTmuxPaneAgents,
   submitText: (target, text) => sendTmuxText(target, text, true, "enter"),
   onSubmitted: (target) => tmuxLastInput.record(target)
+}));
+
+app.use(createTmuxFeedbackRouter({
+  listPanes: listTmuxSessions,
+  readPaneAgents: readTmuxPaneAgents,
+  send: async (target, text) => tmuxSendQueue.send({
+    target,
+    text,
+    enter: true,
+    submitKey: await resolveTmuxSubmitKey(target, undefined),
+    label: "Atw feedback"
+  }),
+  paneOverride: () => process.env.ATW_FEEDBACK_PANE,
+  onSubmitted: (target) => {
+    tmuxLastInput.record(target);
+    tmuxWatch.startWatch(target, "Atw feedback");
+  }
 }));
 
 app.post("/api/tmux/open-codex", asyncHandler(async (req, res) => {
