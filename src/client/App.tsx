@@ -3325,10 +3325,11 @@ function isAppStatus(value: unknown): value is AppStatus {
 }
 
 function EnvironmentBadge({ environment }: { environment?: AppStatus["environment"] }) {
-  if (!environment) {
+  // Only a dev server is worth flagging; PROD on every screen just costs header space.
+  if (environment !== "development") {
     return null;
   }
-  return <span className={`environment-badge ${environment}`}>{environment === "development" ? "DEV" : "PROD"}</span>;
+  return <span className={`environment-badge ${environment}`}>DEV</span>;
 }
 
 function isCodexStatus(value: unknown): value is Partial<AppStatus["codex"]> {
