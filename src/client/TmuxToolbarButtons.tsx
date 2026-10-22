@@ -25,15 +25,14 @@ type InlineProps = {
 };
 
 export function ToolbarInlineButtons({ items, pinnedIds, recentIds, onRun }: InlineProps) {
-  const shown = [...pinnedIds, ...recentIds].flatMap((id) => items.filter((item) => item.id === id));
-  return (
-    <>
-      {shown.map((item) => (
+  const pinned = pinnedIds.flatMap((id) => items.filter((item) => item.id === id));
+  const recent = recentIds.flatMap((id) => items.filter((item) => item.id === id));
+  const button = (item: ToolbarActionItem) => (
         <button
           aria-busy={item.busy}
           aria-label={item.ariaLabel}
           aria-pressed={item.pressed}
-          className={[item.id === "view" ? "tmux-view-toggle" : "", item.id === "close" ? "tmux-close-pane-button" : "", pinnedIds.includes(item.id) ? "kept" : "", item.className ?? ""].filter(Boolean).join(" ") || undefined}
+          className={[item.id === "view" ? "tmux-view-toggle" : "", item.id === "close" ? "tmux-close-pane-button" : "", item.className ?? ""].filter(Boolean).join(" ") || undefined}
           disabled={item.disabled}
           key={item.id}
           title={item.title}
@@ -42,7 +41,13 @@ export function ToolbarInlineButtons({ items, pinnedIds, recentIds, onRun }: Inl
         >
           {item.icon}
         </button>
-      ))}
+  );
+  return (
+    <>
+      {pinned.map(button)}
+      {/* Divides the owner's pins from the recency-picked buttons. */}
+      {pinned.length > 0 && recent.length > 0 && <span aria-hidden="true" className="tmux-toolbar-separator" />}
+      {recent.map(button)}
     </>
   );
 }

@@ -65,7 +65,7 @@ describe("toolbar width cap", () => {
   it("never lets n buttons plus the menu button overflow the toolbar", () => {
     for (let width = 0; width <= 600; width += 7) {
       const n = maxInlineToolbarActions(width);
-      expect(n * (36 + 8) + 36).toBeLessThanOrEqual(Math.max(36, width));
+      expect(n * (36 + 8) + 9 + 36).toBeLessThanOrEqual(Math.max(45, width));
     }
   });
 });
@@ -150,6 +150,15 @@ describe("toolbar rendering", () => {
       expect(menu).toContain(`aria-label="Keep Menu ${id} in toolbar"`);
     }
     expect(menu.match(/aria-checked="true"/g)).toHaveLength(1);
+  });
+
+  it("separates pinned buttons from recent ones only when both are shown", () => {
+    const both = renderToStaticMarkup(<ToolbarInlineButtons items={items} pinnedIds={["close"]} recentIds={["stop", "pin"]} onRun={vi.fn()} />);
+    expect(both.match(/tmux-toolbar-separator/g)).toHaveLength(1);
+    expect(both.indexOf("Inline close")).toBeLessThan(both.indexOf("tmux-toolbar-separator"));
+    expect(both.indexOf("tmux-toolbar-separator")).toBeLessThan(both.indexOf("Inline stop"));
+    expect(renderToStaticMarkup(<ToolbarInlineButtons items={items} pinnedIds={[]} recentIds={["stop"]} onRun={vi.fn()} />)).not.toContain("separator");
+    expect(renderToStaticMarkup(<ToolbarInlineButtons items={items} pinnedIds={["stop"]} recentIds={[]} onRun={vi.fn()} />)).not.toContain("separator");
   });
 
   it("renders no inline buttons when no slot fits", () => {

@@ -8,6 +8,8 @@ export const TOOLBAR_PINNED_STORAGE_KEY = "agent-tmux-web.toolbar-pinned";
 export const MAX_INLINE_TOOLBAR_ACTIONS = 4;
 export const TOOLBAR_BUTTON_WIDTH_PX = 36;
 export const TOOLBAR_BUTTON_GAP_PX = 8;
+// The pinned/recent separator: 1px line plus its gap.
+export const TOOLBAR_SEPARATOR_PX = 9;
 
 export function isToolbarActionId(value: unknown): value is ToolbarActionId {
   return typeof value === "string" && (TOOLBAR_ACTION_ORDER as readonly string[]).includes(value);
@@ -66,7 +68,7 @@ export function maxInlineToolbarActions(toolbarWidthPx: number | null): number {
     return MAX_INLINE_TOOLBAR_ACTIONS;
   }
   // The pane name lives in the title bar, so buttons get the whole row except the "…" menu button.
-  const budget = toolbarWidthPx - TOOLBAR_BUTTON_WIDTH_PX - TOOLBAR_BUTTON_GAP_PX;
+  const budget = toolbarWidthPx - TOOLBAR_BUTTON_WIDTH_PX - TOOLBAR_BUTTON_GAP_PX - TOOLBAR_SEPARATOR_PX;
   const fit = Math.floor((budget + TOOLBAR_BUTTON_GAP_PX) / (TOOLBAR_BUTTON_WIDTH_PX + TOOLBAR_BUTTON_GAP_PX));
   return Math.max(0, Math.min(MAX_INLINE_TOOLBAR_ACTIONS, fit));
 }
