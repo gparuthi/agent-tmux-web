@@ -1060,11 +1060,13 @@ textarea:focus {
   line-height: 1.5;
 }
 
+/* Agents already wrap at the pane's width; wrapping again for a narrow phone breaks every line twice, so wide lines scroll sideways. */
 .tmux-output {
   margin: 0;
   overflow-anchor: none;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
   font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
   font-size: 12px;
   line-height: 1.5;
