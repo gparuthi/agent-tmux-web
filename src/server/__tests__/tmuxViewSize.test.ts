@@ -51,14 +51,15 @@ const target = (paneId: string, windowId: string): TmuxViewTarget => ({ paneId, 
 const phone = { cols: 47, rows: 50 };
 
 describe("TmuxViewSize leases", () => {
-  it("attaches a read-only grouped client at the phone's size and never runs resize-window", async () => {
+  it("attaches a grouped client at the phone's size, not read-only, and never runs resize-window", async () => {
     const { viewSize, clients, tmuxCalls } = setup();
     expect(await viewSize.follow("phone", target("%1", "@1"), phone)).toEqual({ applied: true, cols: 47 });
 
     expect(clients).toHaveLength(1);
     expect(clients[0]!.size).toEqual(phone);
     expect(clients[0]!.command).toContain("stty cols 47 rows 50;");
-    expect(clients[0]!.command).toContain("-f active-pane,read-only -t main -s atw-raw-view1");
+    expect(clients[0]!.command).toContain("-f active-pane -t main -s atw-raw-view1");
+    expect(clients[0]!.command).not.toContain("read-only");
     expect(clients[0]!.command).toContain("select-window -t atw-raw-view1:@1");
     expect([...clients.map((client) => client.command), ...tmuxCalls.map((args) => args.join(" "))].some((text) => text.includes("resize-window"))).toBe(false);
   });
@@ -138,7 +139,7 @@ describe("TmuxViewSize leases", () => {
     expect(await viewSize.follow("phone", target("%1", "@1"), phone, true)).toEqual({ applied: true, cols: 47 });
     expect(clients).toHaveLength(2);
     expect(killed).toEqual(["atw-raw-view1"]);
-    expect(clients[1]!.command).toContain("read-only");
+    expect(clients[1]!.command).toContain("-f active-pane -t main -s atw-raw-view2");
     // Without retake a lease is never replaced, so a debounced resize can't fight the desktop.
     await viewSize.follow("phone", target("%1", "@1"), phone);
     expect(clients).toHaveLength(2);

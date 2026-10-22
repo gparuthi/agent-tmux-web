@@ -76,7 +76,7 @@ export type TmuxViewSizeOptions = {
   newSessionName?: () => string;
 };
 
-// While a phone views a pane in TTY, holds a read-only tmux client at the phone's width so the window
+// While a phone views a pane in TTY, holds a tmux client at the phone's width so the window
 // (window-size latest) shrinks to it for the agent to wrap there. The window is never pinned: leases end
 // when the phone leaves, goes quiet or opens Raw, and the grouped session is killed with them.
 export class TmuxViewSize {
@@ -184,7 +184,8 @@ export class TmuxViewSize {
     const rawSession = this.newSessionName();
     const command = buildTmuxGroupedAttachShellCommand(
       { baseSession: target.baseSession, rawSession, windowId: target.windowId, paneId: target.paneId },
-      { readOnly: true },
+      // Not read-only: tmux routes atw's send-keys through this client and refuses a read-only one; its pty gets no input.
+      {},
       size
     );
     let client: TmuxViewClient;
