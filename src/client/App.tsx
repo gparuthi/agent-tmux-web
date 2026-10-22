@@ -24,6 +24,7 @@ import {
   EyeOff,
   Folder,
   Keyboard,
+  Leaf,
   Menu,
   Monitor,
   Moon,
@@ -132,6 +133,8 @@ import {
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
 import { TmuxSessionList } from "./TmuxSessionList.js";
+import { filterZenPanes, nextZenPane, parseZenMode, serializeZenMode, ZEN_MODE_STORAGE_KEY } from "./zenMode.js";
+import { ZenChip, ZenNextButton } from "./ZenModeControls.js";
 import { installTmuxRailShortcuts, railShortcutsBlocked } from "./tmuxRailShortcuts.js";
 import {
   insertedCharacter,
@@ -263,7 +266,7 @@ const DEMO_STATUS: AppStatus = {
 };
 const DEMO_TMUX_SESSIONS: TmuxSessionDto[] = [
   { name: "agent-demo", currentCommand: "codex", windows: 1, created: "Thu May 14 09:00:00 2026", attached: true, viewerCount: 1, status: { kind: "working", title: "Working" } },
-  { name: "release-notes", currentCommand: "claude", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, status: { kind: "idle", title: "Idle" } },
+  { name: "release-notes", currentCommand: "claude", windows: 1, created: "Thu May 14 09:10:00 2026", attached: false, viewerCount: 0, lastInputAtMs: Date.now() - 5 * 60_000, status: { kind: "idle", title: "Idle" } },
   { name: "infra-check", currentCommand: "opencode", windows: 2, created: "Thu May 14 09:20:00 2026", attached: false, viewerCount: 0, status: { kind: "blocked", title: "Needs permission" } }
 ];
 const DEMO_TMUX_OUTPUT = [
@@ -396,6 +399,7 @@ export function App() {
   const [tmuxSessionGroupPreferences, setTmuxSessionGroupPreferences] = useState<TmuxSessionGroupPreferences>(readInitialTmuxSessionGroupPreferences);
   const [tmuxPaneViews, setTmuxPaneViews] = useState<TmuxPaneViews>(readInitialTmuxPaneViews);
   const [showAllTmuxPanes, setShowAllTmuxPanes] = useState(readInitialShowAllTmuxPanes);
+  const [zenMode, setZenMode] = useState(() => parseZenMode(readStoredValue(ZEN_MODE_STORAGE_KEY)));
   const [slashIndex, setSlashIndex] = useState(0);
   const [tmuxViewMode, setTmuxViewModeState] = useState(readInitialDefaultTmuxViewMode);
   const terminalActive = tmuxViewMode === "raw";
@@ -486,11 +490,18 @@ export function App() {
   // Same strip under the input box on phones, where the soft keyboard has no Esc/Ctrl/arrows.
   const showTmuxKeyStrip = showRawTerminalShortcuts || (showTmuxSendForm && mobileRawInput);
   const selectedTmuxEntry = useMemo(() => findTmuxPane(tmuxSessions, selectedTmux), [selectedTmux, tmuxSessions]);
-  const railTmuxPanes = useMemo(
+  const agentTmuxPanes = useMemo(
     () => filterTmuxAgentPanes(tmuxSessions, showAllTmuxPanes, selectedTmux),
     [selectedTmux, showAllTmuxPanes, tmuxSessions]
   );
-  const hiddenTmuxPaneCount = tmuxSessions.length - railTmuxPanes.length;
+  // Zen narrows the rail further; the pane list refreshes often enough to keep the 24h cutoff current.
+  const railTmuxPanes = useMemo(
+    () => zenMode ? filterZenPanes(agentTmuxPanes, selectedTmux, Date.now()) : agentTmuxPanes,
+    [agentTmuxPanes, selectedTmux, zenMode]
+  );
+  const hiddenTmuxPaneCount = tmuxSessions.length - agentTmuxPanes.length;
+  const zenHiddenCount = agentTmuxPanes.length - railTmuxPanes.length;
+  const nextZenSession = zenMode ? nextZenPane(agentTmuxPanes, pinnedTmuxSessionNames, selectedTmux, Date.now()) : "";
   const tmuxRailView = useMemo<TmuxRailView>(
     () => ({ pinnedNames: pinnedTmuxSessionNames, preferences: tmuxSessionGroupPreferences, showAll: showAllTmuxPanes }),
     [pinnedTmuxSessionNames, showAllTmuxPanes, tmuxSessionGroupPreferences]
@@ -2280,6 +2291,12 @@ export function App() {
     setTerminalStatus(next ? "showing all panes" : "showing agent panes only");
   }
 
+  function updateZenMode(next: boolean) {
+    setZenMode(next);
+    writeStoredValue(ZEN_MODE_STORAGE_KEY, serializeZenMode(next));
+    setTerminalStatus(next ? "zen mode on: recently worked sessions only" : "zen mode off");
+  }
+
   function setTmuxSessionGroupCollapsedPreference(session: string, collapsed: boolean) {
     setTmuxSessionGroupPreferences((current) => {
       const next = setTmuxSessionGroupCollapsed(current, session, collapsed);
@@ -2759,6 +2776,7 @@ export function App() {
               <span>{selectedTmuxEntry ? tmuxPaneDisplayName(selectedTmuxEntry) : selectedTmux || "no session"}</span>
               <Menu size={15} />
             </button>
+            {zenMode && <ZenNextButton next={nextZenSession} onSelect={selectTmuxSession} />}
           </div>
           <div className="tmux-terminal-toolbar" ref={tmuxToolbarRef}>
             <ToolbarInlineButtons items={toolbarItems} pinnedIds={inlineToolbar.pinned} recentIds={inlineToolbar.recent} onRun={runToolbarItem} />
@@ -2795,6 +2813,16 @@ export function App() {
                 )}
                 <div className="tmux-view-menu-section tmux-settings-actions">
                   <span>Panes</span>
+                  <button
+                    aria-checked={zenMode}
+                    className={zenMode ? "active" : ""}
+                    role="menuitemcheckbox"
+                    type="button"
+                    onClick={() => updateZenMode(!zenMode)}
+                  >
+                    <Leaf size={15} />
+                    <span>Zen mode</span>
+                  </button>
                   <button
                     aria-checked={showAllTmuxPanes}
                     className={showAllTmuxPanes ? "active" : ""}
@@ -2886,7 +2914,10 @@ export function App() {
                 <Bot aria-hidden="true" size={15} /> <span>New agent</span>
               </button>
             )}
-            <div className="tmux-rail-section-title">Sessions</div>
+            <div className="tmux-rail-section-row">
+              <div className="tmux-rail-section-title">Sessions</div>
+              {zenMode && <ZenChip onExit={() => updateZenMode(false)} />}
+            </div>
             <TmuxSessionList
               groupPreferences={tmuxSessionGroupPreferences}
               paneViews={tmuxPaneViews}
@@ -2896,6 +2927,8 @@ export function App() {
               onSelect={selectTmuxSession}
               onTogglePin={toggleTmuxSessionPin}
               onToggleGroup={setTmuxSessionGroupCollapsedPreference}
+              zenHiddenCount={zenMode ? zenHiddenCount : 0}
+              onExitZen={() => updateZenMode(false)}
               onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch((wakeError: unknown) => setTmuxToast({ text: readApiErrorMessage(wakeError), error: true })) : undefined}
             />
           </div>

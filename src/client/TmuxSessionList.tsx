@@ -37,6 +37,9 @@ type TmuxSessionListProps = {
   onToggleGroup: (session: string, collapsed: boolean) => void;
   // Present when tmux-hide-window is installed; snoozed rows then get a Wake button.
   onWake?: (name: string) => void;
+  // Panes zen mode filtered out of `panes`; the footer offers to turn zen off.
+  zenHiddenCount?: number;
+  onExitZen?: () => void;
   nowMs?: number;
 };
 
@@ -50,6 +53,8 @@ export function TmuxSessionList({
   onTogglePin,
   onToggleGroup,
   onWake,
+  zenHiddenCount = 0,
+  onExitZen,
   nowMs = Date.now()
 }: TmuxSessionListProps) {
   const { pinned, groups } = groupTmuxPanes(panes, pinnedNames);
@@ -170,6 +175,12 @@ export function TmuxSessionList({
           </div>
         );
       })}
+      {zenHiddenCount > 0 && onExitZen && (
+        <div className="tmux-zen-footer">
+          <span>{zenHiddenCount} hidden by zen mode</span>
+          <button type="button" onClick={onExitZen}>Show all</button>
+        </div>
+      )}
     </div>
   );
 }
