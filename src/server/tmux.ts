@@ -585,7 +585,8 @@ export function buildTmuxPaneDisplayName(pane: {
   host?: string;
   fallback: string;
 }): string {
-  const paneTitle = pane.paneTitle?.trim() ?? "";
+  // Agents prefix the title with a status glyph or spinner frame (iOS draws ✳ as a green emoji); the status dot already says it.
+  const paneTitle = (pane.paneTitle ?? "").replace(/^[^\p{L}\p{N}]+\s+/u, "").trim();
   const hostNames = new Set([pane.host, pane.host?.split(".")[0]].filter(Boolean));
   // tmux defaults pane titles to the hostname, which says nothing about the pane.
   if (paneTitle && !hostNames.has(paneTitle)) {

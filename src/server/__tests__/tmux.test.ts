@@ -730,7 +730,7 @@ describe("tmux pane listing", () => {
 
     expect(byName.get("%39")).toMatchObject({
       windowName: "\u2733 Research notes thread",
-      displayName: "\u2733 Research notes thread",
+      displayName: "Research notes thread",
       label: "main:2.0 \u00b7 zsh \u00b7 ~/work/app"
     });
     expect(byName.get("%49")).toMatchObject({ windowName: "\u03c0 - personal", displayName: "pi\tagent", paneTitle: "pi\tagent" });
@@ -746,6 +746,9 @@ describe("tmux pane listing", () => {
     const base = { paneIndex: 1, host: "mini.local", fallback: "main:0.1" };
     expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "brief notes", windowPanes: 1 })).toBe("brief notes");
     expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "brief notes", windowPanes: 2 })).toBe("brief notes");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "✳ La chat", windowPanes: 1 })).toBe("La chat");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "⠂ Atw", windowPanes: 1 })).toBe("Atw");
+    expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "π - notes - work", windowPanes: 1 })).toBe("π - notes - work");
     expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "mini", windowPanes: 1 })).toBe("brief");
     expect(buildTmuxPaneDisplayName({ ...base, windowName: "brief", paneTitle: "mini.local", windowPanes: 2 })).toBe("brief \u00b7 pane 1");
     expect(buildTmuxPaneDisplayName({ ...base, windowName: "", paneTitle: "", windowPanes: 1 })).toBe("main:0.1");
