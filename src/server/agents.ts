@@ -141,11 +141,12 @@ export function buildAgentWindowName(agentId: string, directory: string, name = 
 }
 
 // Multiple arguments make tmux exec the shell directly instead of via `sh -c`.
-export function buildAgentShellArgv(definition: AvailableAgent, shell: string, name = ""): string[] {
+// The script cds itself: tmux ignores `-c` when the server's own cwd was deleted (seen with tmux 3.8 on macOS).
+export function buildAgentShellArgv(definition: AvailableAgent, shell: string, directory: string, name = ""): string[] {
   const flag = Object.hasOwn(AGENT_LAUNCH_NAME_FLAGS, definition.id) ? AGENT_LAUNCH_NAME_FLAGS[definition.id] : "";
   const safeName = sanitizeNewAgentName(name);
   const launch = flag && safeName ? `${definition.shellCommand} ${flag} ${shellQuote(safeName)}` : definition.shellCommand;
-  return [shell, "-lic", `${launch}; exec ${shell} -l`];
+  return [shell, "-lic", `cd ${shellQuote(directory)} && ${launch}; exec ${shell} -l`];
 }
 
 export function buildNewAgentTmuxArgs(options: {
@@ -159,7 +160,7 @@ export function buildNewAgentTmuxArgs(options: {
 }): string[] {
   const session = options.session ?? NEW_AGENT_TMUX_SESSION;
   const name = buildAgentWindowName(options.definition.id, options.directory, options.name);
-  const command = buildAgentShellArgv(options.definition, options.shell, options.name);
+  const command = buildAgentShellArgv(options.definition, options.shell, options.directory, options.name);
   const placement = options.sessionExists
     ? ["new-window", "-t", `=${session}:`]
     : ["new-session", "-d", "-s", session];

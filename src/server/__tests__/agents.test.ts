@@ -151,7 +151,7 @@ describe("agent tmux arguments", () => {
     expect(buildNewAgentTmuxArgs({ definition: pi, directory: "/Users/me/work/atw", shell: "/bin/zsh", sessionExists: true })).toEqual([
       "new-window", "-t", "=main:", "-P", "-F", "#{pane_id}",
       "-c", "/Users/me/work/atw", "-n", "pi:atw",
-      "/bin/zsh", "-lic", "/Users/me/.local/bin/pi; exec /bin/zsh -l"
+      "/bin/zsh", "-lic", "cd /Users/me/work/atw && /Users/me/.local/bin/pi; exec /bin/zsh -l"
     ]);
   });
 
@@ -166,9 +166,22 @@ describe("agent tmux arguments", () => {
     const args = buildNewAgentTmuxArgs({ definition: pi, directory, shell: "/bin/zsh", sessionExists: true });
     expect(args[args.indexOf("-c") + 1]).toBe(directory);
     expect(args[args.indexOf("-n") + 1]).toBe("pi:touch-pwned-echo-id-x");
-    expect(buildAgentShellArgv(pi, "/bin/zsh").join(" ")).not.toContain("touch");
-    expect(args.slice(-3)).toEqual(buildAgentShellArgv(pi, "/bin/zsh"));
+    expect(buildAgentShellArgv(pi, "/bin/zsh", directory)[2]).toBe(`cd '/tmp/$(touch pwned); echo \`id\` #x' && /Users/me/.local/bin/pi; exec /bin/zsh -l`);
+    expect(args.slice(-3)).toEqual(buildAgentShellArgv(pi, "/bin/zsh", directory));
     expect(buildAgentWindowName("codex", "/")).toBe("codex:root");
+  });
+
+  it("quotes a directory with a space and a single quote so the shell cds into it verbatim", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "atw-cd-"));
+    tempDirs.push(root);
+    const directory = path.join(root, "it's a dir");
+    await mkdir(directory);
+    const script = buildAgentShellArgv(pi, "/bin/zsh", directory)[2];
+    expect(script).toBe(`cd ${shellQuote(directory)} && /Users/me/.local/bin/pi; exec /bin/zsh -l`);
+    expect(shellQuote(directory)).toContain("'\\''");
+    const cd = script.slice(0, script.indexOf(" && "));
+    const echoed = spawnSync("/bin/sh", ["-c", `${cd} && pwd -P`], { cwd: "/" });
+    expect(echoed.stdout.toString().trim()).toBe(await realpath(directory));
   });
 });
 
@@ -180,22 +193,22 @@ describe("named new agents", () => {
     const args = buildNewAgentTmuxArgs({ definition: claude, directory: "/Users/me/work/atw", shell: "/bin/zsh", sessionExists: true, name: "fix auth" });
     expect(args.slice(args.indexOf("-n"))).toEqual([
       "-n", "fix auth",
-      "/bin/zsh", "-lic", "/Users/me/.local/bin/claude --name 'fix auth'; exec /bin/zsh -l"
+      "/bin/zsh", "-lic", "cd /Users/me/work/atw && /Users/me/.local/bin/claude --name 'fix auth'; exec /bin/zsh -l"
     ]);
-    expect(buildAgentShellArgv(pi, "/bin/zsh", "x")[2]).toBe("/Users/me/.local/bin/pi --name x; exec /bin/zsh -l");
+    expect(buildAgentShellArgv(pi, "/bin/zsh", "/srv/x", "x")[2]).toBe("cd /srv/x && /Users/me/.local/bin/pi --name x; exec /bin/zsh -l");
   });
 
   it("leaves the launch and window name unchanged for an empty name", () => {
     const plain = buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true });
     expect(buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true, name: "" })).toEqual(plain);
-    expect(plain.slice(plain.indexOf("-n"))).toEqual(["-n", "claude:x", "/bin/zsh", "-lic", "/Users/me/.local/bin/claude; exec /bin/zsh -l"]);
+    expect(plain.slice(plain.indexOf("-n"))).toEqual(["-n", "claude:x", "/bin/zsh", "-lic", "cd /srv/x && /Users/me/.local/bin/claude; exec /bin/zsh -l"]);
   });
 
   it("single-quotes a hostile name so the shell sees one argument", () => {
     const name = sanitizeNewAgentName("a'; rm -rf ~ #");
     const args = buildNewAgentTmuxArgs({ definition: claude, directory: "/srv/x", shell: "/bin/zsh", sessionExists: true, name });
     const command = args[args.length - 1];
-    expect(command).toBe(`/Users/me/.local/bin/claude --name 'a'\\''; rm -rf ~ #'; exec /bin/zsh -l`);
+    expect(command).toBe(`cd /srv/x && /Users/me/.local/bin/claude --name 'a'\\''; rm -rf ~ #'; exec /bin/zsh -l`);
     // The window name drops everything tmux or a shell could act on.
     expect(args[args.indexOf("-n") + 1]).not.toMatch(/[';~#]/);
     const echoed = spawnSync("/bin/sh", ["-c", `printf '%s' ${command.slice(command.indexOf("--name ") + 7, command.indexOf("; exec"))}`]);
@@ -213,12 +226,12 @@ describe("named new agents", () => {
     expect(sanitizeNewAgentName("---")).toBe("");
     expect(sanitizeNewAgentName(undefined)).toBe("");
     expect(sanitizeNewAgentName("x".repeat(150))).toHaveLength(100);
-    const args = buildAgentShellArgv(claude, "/bin/zsh", "--evil");
-    expect(args[2]).toBe("/Users/me/.local/bin/claude --name evil; exec /bin/zsh -l");
+    const args = buildAgentShellArgv(claude, "/bin/zsh", "/srv/x", "--evil");
+    expect(args[2]).toBe("cd /srv/x && /Users/me/.local/bin/claude --name evil; exec /bin/zsh -l");
   });
 
   it("renames after launch only for agents with a rename command but no launch flag", () => {
-    expect(buildAgentShellArgv(codex, "/bin/zsh", "x")[2]).toBe("codex; exec /bin/zsh -l");
+    expect(buildAgentShellArgv(codex, "/bin/zsh", "/srv/x", "x")[2]).toBe("cd /srv/x && codex; exec /bin/zsh -l");
     expect(agentRenamesAfterLaunch("codex", "x")).toBe(true);
     expect(agentRenamesAfterLaunch("codex", "")).toBe(false);
     for (const id of ["claude", "pi", "hax", "opencode"]) {
@@ -332,7 +345,7 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
       await new Promise((resolve) => setTimeout(resolve, 100));
       recorded = await readFile(path.join(project, ".agent-args"), "utf8").catch(() => "");
     }
-    expect(recorded.trim().split("\n")).toEqual([first.directory, "-lic", `${binary}; exec ${shell} -l`]);
+    expect(recorded.trim().split("\n")).toEqual([first.directory, "-lic", `cd ${shellQuote(first.directory)} && ${binary}; exec ${shell} -l`]);
 
     await expect(startAgentInTmux("bash", project, { definitions, shell })).rejects.toThrow(/Unknown agent/);
     await expect(startAgentInTmux("pi", path.join(workDir, "missing"), { definitions, shell })).rejects.toThrow(/does not exist/);
@@ -358,6 +371,6 @@ describe.skipIf(!tmuxAvailable)("starting an agent against a real tmux server", 
       await new Promise((resolve) => setTimeout(resolve, 100));
       recorded = await readFile(path.join(project, ".named-args"), "utf8").catch(() => "");
     }
-    expect(recorded.trim().split("\n")).toEqual(["-lic", `${binary} --name 'a'\\''; rm -rf ~ #'; exec ${shell} -l`]);
+    expect(recorded.trim().split("\n")).toEqual(["-lic", `cd ${shellQuote(started.directory)} && ${binary} --name 'a'\\''; rm -rf ~ #'; exec ${shell} -l`]);
   });
 });
