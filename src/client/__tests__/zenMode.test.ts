@@ -32,6 +32,10 @@ describe("isZenActivePane", () => {
     expect(isZenActivePane(old("%1", { status: { kind: "idle", title: "Idle 3d" } }), NOW)).toBe(false);
   });
 
+  it("keeps an old pane while its agent waits on the owner", () => {
+    expect(isZenActivePane(old("%1", { status: { kind: "blocked", title: "Needs permission" } }), NOW)).toBe(true);
+  });
+
   it("drops a snoozed pane even when recent or working", () => {
     expect(isZenActivePane(recent("%1", { snoozedUntilMs: NOW + 1000 }), NOW)).toBe(false);
     expect(isZenActivePane(old("%1", { snoozedUntilMs: NOW + 1000, status: { kind: "working", title: "Working" } }), NOW)).toBe(false);

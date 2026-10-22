@@ -3,7 +3,7 @@ import { groupTmuxPanes } from "./tmuxSessionGroups.js";
 
 export const ZEN_MODE_STORAGE_KEY = "agent-tmux-web.zen-mode";
 
-// Zen keeps panes the owner prompted within a day, plus any pane that is working right now.
+// Zen keeps panes the owner prompted within a day, plus any pane working or waiting on the owner right now.
 export const ZEN_ACTIVE_WITHIN_MS = 24 * 60 * 60_000;
 
 export function parseZenMode(stored: string | null): boolean {
@@ -19,7 +19,7 @@ export function isZenActivePane(pane: TmuxSessionDto, nowMs: number): boolean {
   if (pane.snoozedUntilMs) {
     return false;
   }
-  if (pane.status?.kind === "working") {
+  if (pane.status?.kind === "working" || pane.status?.kind === "blocked") {
     return true;
   }
   return pane.lastInputAtMs !== undefined && nowMs - pane.lastInputAtMs <= ZEN_ACTIVE_WITHIN_MS;
