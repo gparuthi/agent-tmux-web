@@ -1,13 +1,11 @@
-export type ToolbarActionId = "view" | "stop" | "pin" | "refresh" | "close" | "snooze";
+export type ToolbarActionId = "view" | "stop" | "compact" | "pin" | "refresh" | "close" | "snooze";
 export type ToolbarLastUsed = Partial<Record<ToolbarActionId, number>>;
 
 // Today's left-to-right order; it is also the tie-break when there is no use history.
-export const TOOLBAR_ACTION_ORDER: readonly ToolbarActionId[] = ["view", "stop", "pin", "refresh", "close", "snooze"];
+export const TOOLBAR_ACTION_ORDER: readonly ToolbarActionId[] = ["view", "stop", "compact", "pin", "refresh", "close", "snooze"];
 export const TOOLBAR_LAST_USED_STORAGE_KEY = "agent-tmux-web.toolbar-last-used";
 export const TOOLBAR_PINNED_STORAGE_KEY = "agent-tmux-web.toolbar-pinned";
-export const MAX_INLINE_TOOLBAR_ACTIONS = 3;
-// Inline buttons may use at most half the toolbar so the pane title keeps the rest.
-export const TOOLBAR_INLINE_WIDTH_SHARE = 0.5;
+export const MAX_INLINE_TOOLBAR_ACTIONS = 4;
 export const TOOLBAR_BUTTON_WIDTH_PX = 36;
 export const TOOLBAR_BUTTON_GAP_PX = 8;
 
@@ -62,12 +60,13 @@ export function recentToolbarActions(
     .sort((a, b) => (lastUsed[b] ?? 0) - (lastUsed[a] ?? 0) || TOOLBAR_ACTION_ORDER.indexOf(a) - TOOLBAR_ACTION_ORDER.indexOf(b));
 }
 
-// How many buttons fit in the inline share of the toolbar, capped at three.
+// How many buttons fit in the inline share of the toolbar, capped at four.
 export function maxInlineToolbarActions(toolbarWidthPx: number | null): number {
   if (toolbarWidthPx === null || !Number.isFinite(toolbarWidthPx)) {
     return MAX_INLINE_TOOLBAR_ACTIONS;
   }
-  const budget = toolbarWidthPx * TOOLBAR_INLINE_WIDTH_SHARE;
+  // The pane name lives in the title bar, so buttons get the whole row except the "…" menu button.
+  const budget = toolbarWidthPx - TOOLBAR_BUTTON_WIDTH_PX - TOOLBAR_BUTTON_GAP_PX;
   const fit = Math.floor((budget + TOOLBAR_BUTTON_GAP_PX) / (TOOLBAR_BUTTON_WIDTH_PX + TOOLBAR_BUTTON_GAP_PX));
   return Math.max(0, Math.min(MAX_INLINE_TOOLBAR_ACTIONS, fit));
 }
@@ -95,7 +94,7 @@ export function canKeepInToolbar(
   id: ToolbarActionId,
   maxInline: number
 ): boolean {
-  return pins.includes(id) || pins.filter((pin) => available.includes(pin)).length < maxInline;
+  return pins.includes(id) || (available.includes(id) && pins.filter((pin) => available.includes(pin)).length < maxInline);
 }
 
 // Moves one visible pin to a new place in the pin order; pins for unavailable actions keep their spot at the end.

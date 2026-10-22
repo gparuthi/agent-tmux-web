@@ -20,8 +20,8 @@ import {
 const all: ToolbarActionId[] = [...TOOLBAR_ACTION_ORDER];
 
 describe("toolbar slot selection", () => {
-  it("defaults to today's first three buttons with no history", () => {
-    expect(inlineToolbarActions(all, [], {}, 3)).toEqual({ pinned: [], recent: ["view", "stop", "pin"] });
+  it("defaults to today's first four buttons with no history", () => {
+    expect(inlineToolbarActions(all, [], {}, 4)).toEqual({ pinned: [], recent: ["view", "stop", "compact", "pin"] });
   });
 
   it("fills recents by most recent use, shown in today's order", () => {
@@ -52,20 +52,20 @@ describe("toolbar slot selection", () => {
 });
 
 describe("toolbar width cap", () => {
-  it("allows at most three buttons and at most half the width", () => {
-    expect(maxInlineToolbarActions(null)).toBe(3);
-    expect(maxInlineToolbarActions(390)).toBe(3);
-    expect(maxInlineToolbarActions(1200)).toBe(3);
-    expect(maxInlineToolbarActions(200)).toBe(2);
+  it("allows at most four buttons, leaving room for the menu button", () => {
+    expect(maxInlineToolbarActions(null)).toBe(4);
+    expect(maxInlineToolbarActions(390)).toBe(4);
+    expect(maxInlineToolbarActions(1200)).toBe(4);
+    expect(maxInlineToolbarActions(200)).toBe(3);
     expect(maxInlineToolbarActions(100)).toBe(1);
     expect(maxInlineToolbarActions(60)).toBe(0);
     expect(maxInlineToolbarActions(0)).toBe(0);
   });
 
-  it("never lets n buttons exceed half the toolbar", () => {
+  it("never lets n buttons plus the menu button overflow the toolbar", () => {
     for (let width = 0; width <= 600; width += 7) {
       const n = maxInlineToolbarActions(width);
-      expect(n * 36 + Math.max(0, n - 1) * 8).toBeLessThanOrEqual(width / 2);
+      expect(n * (36 + 8) + 36).toBeLessThanOrEqual(Math.max(36, width));
     }
   });
 });
@@ -161,7 +161,7 @@ describe("toolbar rendering", () => {
       <ToolbarMenuSection canKeep={() => false} items={items} pins={["view", "stop", "pin"]} onRun={vi.fn()} onTogglePin={vi.fn()} />
     );
     expect(menu).toContain("Toolbar full, unpin one first");
-    expect(menu.match(/disabled=""[^>]*role="menuitemcheckbox"/g)).toHaveLength(3);
+    expect(menu.match(/disabled=""[^>]*role="menuitemcheckbox"/g)).toHaveLength(all.length - 3);
   });
 });
 

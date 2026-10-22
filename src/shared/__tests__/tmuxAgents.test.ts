@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { displayTmuxPaneCommand, tmuxAgentDropsTypeAhead, tmuxEntryAgent, tmuxPaneAgent } from "../tmuxAgents.js";
+import { displayTmuxPaneCommand, tmuxAgentDropsTypeAhead, tmuxAgentSupportsCompact, tmuxEntryAgent, tmuxPaneAgent } from "../tmuxAgents.js";
 
 describe("tmux pane agents", () => {
   it("recognises agent CLIs from tmux's pane_current_command", () => {
@@ -32,5 +32,10 @@ describe("tmux pane agents", () => {
     expect(tmuxAgentDropsTypeAhead(null)).toBe(false);
     expect(tmuxAgentDropsTypeAhead(undefined)).toBe(false);
     expect(tmuxAgentDropsTypeAhead("")).toBe(false);
+  });
+
+  it("offers /compact only to agents that have it", () => {
+    expect(["claude", "codex", "pi", "Claude"].map(tmuxAgentSupportsCompact)).toEqual([true, true, true, true]);
+    expect(["hax", "opencode", "zsh", "", null, undefined].map(tmuxAgentSupportsCompact)).toEqual([false, false, false, false, false, false]);
   });
 });

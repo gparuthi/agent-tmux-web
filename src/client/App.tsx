@@ -29,6 +29,7 @@ import {
   Moon,
   Paperclip,
   PencilLine,
+  Minimize2,
   Pin,
   Play,
   Plus,
@@ -61,7 +62,7 @@ import {
   type UploadedFileDto
 } from "../shared/api.js";
 import { describeThreadItem, type UiEventDescription } from "../shared/codexEvents.js";
-import { tmuxAgentDropsTypeAhead, tmuxEntryAgent } from "../shared/tmuxAgents.js";
+import { tmuxAgentDropsTypeAhead, tmuxAgentSupportsCompact, tmuxEntryAgent } from "../shared/tmuxAgents.js";
 import { supportsTmuxRename, tmuxRenamePrefill } from "../shared/tmuxRename.js";
 import { TmuxQueuedMessages } from "./TmuxQueuedMessages.js";
 import {
@@ -508,6 +509,15 @@ export function App() {
       icon: <CircleStop aria-hidden="true" size={15} />,
       disabled: !selectedTmux,
       onClick: () => interruptTmux().catch(reportError(setError))
+    },
+    {
+      id: "compact",
+      menuLabel: "Compact (/compact)",
+      ariaLabel: "Compact the agent's conversation",
+      title: "Send /compact to free context",
+      icon: <Minimize2 aria-hidden="true" size={15} />,
+      disabled: !selectedTmux || !tmuxAgentSupportsCompact(selectedTmuxEntry ? tmuxEntryAgent(selectedTmuxEntry) : null),
+      onClick: () => sendTmuxCompact().catch(reportError(setError))
     },
     {
       id: "pin",
@@ -1497,6 +1507,22 @@ export function App() {
     }
     setTerminalStatus(`sent to ${session}; following output`);
     scheduleTmuxFollow(session);
+  }
+
+  // Goes through the server so an agent mid-turn gets it queued, like typed input.
+  async function sendTmuxCompact() {
+    if (!selectedTmux || demoMode) {
+      return;
+    }
+    const session = selectedTmux;
+    const result = await api<TmuxSendResultDto>("/api/tmux/send", {
+      method: "POST",
+      body: JSON.stringify({ session, text: "/compact", enter: true })
+    });
+    setTerminalStatus(result.queued ? `/compact queued for ${result.queued.agent}` : `sent /compact to ${session}`);
+    if (!result.queued) {
+      scheduleTmuxFollow(session);
+    }
   }
 
   async function cancelQueuedTmuxMessage(id: string) {
@@ -2665,7 +2691,8 @@ export function App() {
           </div>
           <div className="tmux-terminal-toolbar" ref={tmuxToolbarRef}>
             <ToolbarInlineButtons items={toolbarItems} pinnedIds={inlineToolbar.pinned} recentIds={inlineToolbar.recent} onRun={runToolbarItem} />
-            <span className="tmux-terminal-status">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
+            {/* The pane name is already in the title bar; status text stays for screen readers only. */}
+            <span aria-live="polite" className="tmux-terminal-status visually-hidden">{formatTmuxStatusText(terminalStatus || selectedTmux || "no session selected", tmuxSessions)}</span>
             <details className="tmux-view-menu tmux-settings-menu" ref={tmuxSettingsMenuRef}>
               <summary aria-label="More options" title="More options">
                 <Ellipsis aria-hidden="true" size={16} />

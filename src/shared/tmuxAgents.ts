@@ -21,6 +21,13 @@ export function tmuxEntryAgent(entry: { agent?: string; currentCommand?: string 
 // hax reads and discards stdin while a turn runs, then tcflushes it; Claude, Codex, pi and opencode queue it.
 export const TMUX_AGENTS_DROPPING_TYPE_AHEAD: ReadonlySet<string> = new Set(["hax"]);
 
+// Agents with a /compact slash command.
+export const TMUX_AGENTS_WITH_COMPACT: ReadonlySet<string> = new Set(["claude", "codex", "pi"]);
+
+export function tmuxAgentSupportsCompact(agent: string | null | undefined): boolean {
+  return typeof agent === "string" && TMUX_AGENTS_WITH_COMPACT.has(agent.toLowerCase());
+}
+
 export function tmuxAgentDropsTypeAhead(agent: string | null | undefined): boolean {
   return typeof agent === "string" && TMUX_AGENTS_DROPPING_TYPE_AHEAD.has(agent.toLowerCase());
 }
