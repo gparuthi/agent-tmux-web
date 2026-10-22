@@ -752,7 +752,7 @@ export function App() {
     }
   }, []);
 
-  // The inline buttons may take at most half the toolbar, so track its width.
+  // How many inline buttons fit depends on the toolbar's width, so track it.
   useEffect(() => {
     const toolbar = tmuxToolbarRef.current;
     if (!toolbar || typeof ResizeObserver === "undefined") {
@@ -764,6 +764,21 @@ export function App() {
     observer.observe(toolbar);
     return () => observer.disconnect();
   }, []);
+
+  // Wide TTY lines scroll sideways; a view or pane switch starts back at the left edge (iOS can also pan the page).
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      if (window.scrollX !== 0) {
+        window.scrollTo(0, window.scrollY);
+      }
+      for (const node of [tmuxCaptureWidthRef.current, tmuxOutputRef.current]) {
+        if (node) {
+          node.scrollLeft = 0;
+        }
+      }
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [tmuxViewMode, selectedTmux]);
 
   useEffect(() => {
     selectedTmuxRef.current = selectedTmux;
