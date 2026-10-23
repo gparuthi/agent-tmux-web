@@ -2254,7 +2254,9 @@ export function App() {
           pane: selectedTmuxEntry ? tmuxPaneDisplayName(selectedTmuxEntry) : selectedTmux,
           view: TMUX_VIEW_MODE_LABELS[tmuxViewMode],
           viewport: `${document.documentElement.clientWidth}x${window.innerHeight}`,
-          build: readBundleId()
+          build: readBundleId(),
+          // A failed capture travels with the report, so the agent sees the browser's reason without asking.
+          ...(feedbackShot?.blob === null && feedbackShot.error ? { screenshotError: feedbackShot.error.replace(/^No screenshot: /, "") } : {})
         }
       })
     });

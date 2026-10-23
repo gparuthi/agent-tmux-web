@@ -18,6 +18,7 @@ export type TmuxFeedbackContext = {
   view?: string;
   viewport?: string;
   build?: string;
+  screenshotError?: string;
 };
 
 export type TmuxFeedbackRouterOptions = {
@@ -65,7 +66,8 @@ export function buildTmuxFeedbackText(message: string, context: TmuxFeedbackCont
     ["pane", context.pane],
     ["view", context.view],
     ["viewport", context.viewport],
-    ["build", context.build]
+    ["build", context.build],
+    ["screenshot failed", context.screenshotError]
   ].flatMap(([key, value]) => value ? [`${key} ${value}`] : []);
   return [
     `Feedback from the Agent Tmux web UI: ${message}`,
@@ -121,7 +123,8 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
       pane: flattenFeedbackText(rawContext.pane, CONTEXT_VALUE_MAX_LENGTH),
       view: flattenFeedbackText(rawContext.view, CONTEXT_VALUE_MAX_LENGTH),
       viewport: flattenFeedbackText(rawContext.viewport, CONTEXT_VALUE_MAX_LENGTH),
-      build: flattenFeedbackText(rawContext.build, CONTEXT_VALUE_MAX_LENGTH)
+      build: flattenFeedbackText(rawContext.build, CONTEXT_VALUE_MAX_LENGTH),
+      screenshotError: flattenFeedbackText(rawContext.screenshotError, CONTEXT_VALUE_MAX_LENGTH)
     };
     const override = paneOverride?.();
     let pane: TmuxSession;

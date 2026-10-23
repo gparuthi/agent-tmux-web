@@ -49,6 +49,8 @@ describe("feedback text", () => {
     expect(buildTmuxFeedbackText("button is off", { pane: "Atw", view: "TTY", viewport: "390x844", build: "index-ab12.js" }, "~/.agent-tmux/attachments/2026-10-22/s.png"))
       .toBe("Feedback from the Agent Tmux web UI: button is off (pane Atw, view TTY, viewport 390x844, build index-ab12.js) Screenshot: ~/.agent-tmux/attachments/2026-10-22/s.png");
     expect(buildTmuxFeedbackText("hi", {}, "")).toBe("Feedback from the Agent Tmux web UI: hi");
+    expect(buildTmuxFeedbackText("hi", { view: "TTY", screenshotError: "Screenshot timed out" }, ""))
+      .toBe("Feedback from the Agent Tmux web UI: hi (view TTY, screenshot failed Screenshot timed out)");
   });
 });
 
