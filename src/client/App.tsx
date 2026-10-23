@@ -918,7 +918,7 @@ export function App() {
     { method: "POST", body: JSON.stringify(body), keepalive: options?.keepalive }
   ), []);
   const recaptureViewSize = useCallback((session: string) => captureTmux(session, { source: "follow" }), [captureTmux]);
-  const { cols: tmuxViewCols, hint: tmuxWidthHint } = useTmuxViewSize({
+  const { cols: tmuxViewCols, hint: tmuxWidthHint, fit: fitTmuxWindow } = useTmuxViewSize({
     enabled: !demoMode && mobileRawInput && selectedTmuxLocalPane && !terminalActive,
     target: selectedTmux,
     clientId: BROWSER_CLIENT_ID,
@@ -2990,7 +2990,9 @@ export function App() {
               />
             )}
             {!terminalActive && tmuxWidthHint && (
-              <div className="tmux-width-hint" role="status">Window is wider than this screen</div>
+              <button className="tmux-width-hint" type="button" title="Size the tmux window to this screen" onClick={fitTmuxWindow}>
+                Window is wider than this screen · Fit
+              </button>
             )}
             {showTmuxJumpToLatest && (
               <button className={`tmux-jump-bottom${tmuxSidebar ? " stream-pane" : ""}`} aria-label="Jump to latest tmux output" title="Jump to latest tmux output" type="button" onClick={jumpTmuxOutputToBottom}>

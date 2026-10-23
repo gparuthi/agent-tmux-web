@@ -1816,12 +1816,18 @@ textarea:focus {
   position: absolute;
   top: 4px;
   right: 8px;
-  padding: 2px 8px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-base) 80%, transparent);
   color: var(--text-muted);
+  font: inherit;
   font-size: 11px;
-  pointer-events: none;
+  cursor: pointer;
+}
+
+.tmux-width-hint:active {
+  color: var(--text-primary);
 }
 
 .tmux-jump-bottom {

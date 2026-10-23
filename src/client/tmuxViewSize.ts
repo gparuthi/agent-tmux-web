@@ -53,8 +53,9 @@ export type TmuxViewSizeOptions = {
 };
 
 // While a phone views a pane in TTY, asks the server to size the tmux window to the columns that fit the
-// screen so the agent wraps there. Returns the measured columns and whether to hint that the window is wider.
-export function useTmuxViewSize(options: TmuxViewSizeOptions): { cols: number | null; hint: boolean } {
+// screen so the agent wraps there. Returns the measured columns, whether to hint that the window is wider,
+// and `fit`, which takes the window back when a desktop terminal has grown it (the hint's tap).
+export function useTmuxViewSize(options: TmuxViewSizeOptions): { cols: number | null; hint: boolean; fit: () => void } {
   const { enabled, target, clientId, measureKey, paneWidth } = options;
   const [cols, setCols] = useState<number | null>(null);
   const [settled, setSettled] = useState(false);
@@ -188,5 +189,6 @@ export function useTmuxViewSize(options: TmuxViewSizeOptions): { cols: number | 
 
   useEffect(() => () => release(true), [release]);
 
-  return { cols, hint: enabled && viewWidthHintVisible({ settled, paneWidth, cols }) };
+  const fit = useCallback(() => apply(true), [apply]);
+  return { cols, hint: enabled && viewWidthHintVisible({ settled, paneWidth, cols }), fit };
 }
