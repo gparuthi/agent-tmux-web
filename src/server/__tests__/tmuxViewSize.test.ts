@@ -93,6 +93,18 @@ describe("TmuxViewSize leases", () => {
     expect(viewSize.leasedPanes().sort()).toEqual(["%1", "%3"]);
   });
 
+  it("lets a retake take the window from another client's lease", async () => {
+    const { viewSize, clients, killed } = setup();
+    await viewSize.follow("desktop", target("%1", "@1"), { cols: 180, rows: 50 });
+    expect(await viewSize.follow("phone", target("%1", "@1"), phone, true)).toEqual({ applied: true, cols: 47 });
+    expect(clients[0]!.closed).toBe(true);
+    expect(killed).toEqual(["atw-raw-view1"]);
+    expect(viewSize.leasedPanes()).toEqual(["%1"]);
+    // The desktop's debounced resend is not a retake, so it does not fight the phone back.
+    expect(await viewSize.follow("desktop", target("%1", "@1"), { cols: 182, rows: 50 })).toEqual({ applied: false });
+    expect(clients).toHaveLength(2);
+  });
+
   it("releases on request and lets the next client take the window", async () => {
     const { viewSize, clients, killed } = setup();
     await viewSize.follow("phone", target("%1", "@1"), phone);

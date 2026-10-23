@@ -912,14 +912,14 @@ export function App() {
     return () => document.removeEventListener("visibilitychange", followWhenVisible);
   }, [autoZoomTarget, mobileRawInput]);
 
-  // On a phone the TTY view asks tmux for a window as wide as the screen, so the agent wraps there.
+  // The TTY view asks tmux for a window as wide as itself, so the agent wraps there on any screen.
   const sendViewSize = useCallback<TmuxViewSizeSender>((body, options) => api(
     "/api/tmux/view-size",
     { method: "POST", body: JSON.stringify(body), keepalive: options?.keepalive }
   ), []);
   const recaptureViewSize = useCallback((session: string) => captureTmux(session, { source: "follow" }), [captureTmux]);
   const { cols: tmuxViewCols, hint: tmuxWidthHint, fit: fitTmuxWindow } = useTmuxViewSize({
-    enabled: !demoMode && mobileRawInput && selectedTmuxLocalPane && !terminalActive,
+    enabled: !demoMode && selectedTmuxLocalPane && !terminalActive,
     target: selectedTmux,
     clientId: BROWSER_CLIENT_ID,
     measureKey: `${selectedTmux}|${terminalActive}|${tmuxSidebar?.kind ?? ""}`,

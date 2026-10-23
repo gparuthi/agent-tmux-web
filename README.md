@@ -37,6 +37,10 @@ tabs without killing the work.
 - On phones, a selected pane that shares its tmux window is zoomed so it gets
   the full width; atw undoes only its own zoom when the phone moves on,
   disconnects, or goes quiet for a minute.
+- The TTY view, on phones and desktops, sizes the tmux window to its own width
+  so the agent wraps there. The browser you selected the pane in, or came back
+  to, wins; a terminal you type in takes the window back, and the "wider than
+  this screen" hint's Fit takes it again.
 - atw never pins a tmux window's size: tmux sizes windows from its clients, and
   a window atw resized is unpinned if left at `window-size manual`.
 - A feedback sheet that types your note plus a screenshot path into the agent

@@ -15,7 +15,7 @@ import {
   type TerminalSize
 } from "./terminal.js";
 
-// A phone that stops polling (screen off, tab gone) counts as gone after this long.
+// A browser that stops polling (screen off, tab hidden or gone) counts as gone after this long.
 export const VIEW_SIZE_IDLE_MS = 60_000;
 export const VIEW_SIZE_SWEEP_MS = 10_000;
 
@@ -118,7 +118,8 @@ export class TmuxViewSize {
   }
 
   // The client views `target` at `size` (null releases). A window another client already leases stays
-  // that client's: this one gets applied:false and keeps its scroll fallback. `retake` means the phone
+  // that client's unless this is a retake; otherwise this one gets applied:false and keeps its scroll
+  // fallback. `retake` means the browser
   // just selected the pane or came back: a client that typed since took the window (a pty resize does
   // not win it back), so a lease whose window is no longer at its width is replaced by a fresh attach.
   follow(clientId: string, target: TmuxViewTarget | null, size: TerminalSize, retake = false): Promise<TmuxViewSizeResult> {
@@ -143,8 +144,13 @@ export class TmuxViewSize {
         }
         return { applied: true, cols: lease.size.cols };
       }
-      if ([...this.leases.values()].some((other) => other.windowId === target.windowId)) {
+      const holder = [...this.leases.values()].find((other) => other.windowId === target.windowId);
+      if (holder && !retake) {
         return { applied: false };
+      }
+      // The browser the owner just picked or came back to wins over one left open elsewhere.
+      if (holder) {
+        await this.end(holder);
       }
       return { applied: this.attach(clientId, target, size), cols: size.cols };
     });
@@ -159,7 +165,7 @@ export class TmuxViewSize {
     });
   }
 
-  // Ends the leases of phones that stopped polling.
+  // Ends the leases of browsers that stopped polling.
   sweep(): Promise<void> {
     return this.serialize(async () => {
       const nowMs = this.now();

@@ -39,7 +39,7 @@ export function viewWidthHintVisible(state: { settled: boolean; paneWidth: numbe
 }
 
 export type TmuxViewSizeOptions = {
-  // Phone, not demo, local pane, TTY view.
+  // Not demo, local pane, TTY view; phones and desktops alike.
   enabled: boolean;
   target: string;
   clientId: string;
@@ -52,8 +52,8 @@ export type TmuxViewSizeOptions = {
   recapture: (target: string) => Promise<unknown>;
 };
 
-// While a phone views a pane in TTY, asks the server to size the tmux window to the columns that fit the
-// screen so the agent wraps there. Returns the measured columns, whether to hint that the window is wider,
+// While a browser views a pane in TTY, asks the server to size the tmux window to the columns that fit the
+// view so the agent wraps there. Returns the measured columns, whether to hint that the window is wider,
 // and `fit`, which takes the window back when a desktop terminal has grown it (the hint's tap).
 export function useTmuxViewSize(options: TmuxViewSizeOptions): { cols: number | null; hint: boolean; fit: () => void } {
   const { enabled, target, clientId, measureKey, paneWidth } = options;
