@@ -49,13 +49,27 @@ describe("title long press", () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 
-  it("ignores mouse presses and secondary pointers, which use right-click instead", () => {
+  it("ignores mouse presses and secondary pointers, which use click or right-click instead", () => {
     const onOpen = vi.fn();
     const press = createTitleLongPress(onOpen);
     press.pointerDown({ ...touch(), pointerType: "mouse" });
     press.pointerDown({ ...touch(), isPrimary: false });
     vi.advanceTimersByTime(1000);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+
+  it("opens on a mouse click but not on the click that follows a touch tap", () => {
+    const onOpen = vi.fn();
+    const press = createTitleLongPress(onOpen);
+    press.pointerDown({ ...touch(), pointerType: "mouse" });
+    press.cancel();
+    press.click();
+    expect(onOpen).toHaveBeenCalledOnce();
+
+    press.pointerDown(touch());
+    press.cancel();
+    press.click();
+    expect(onOpen).toHaveBeenCalledOnce();
   });
 
   it("opens at once on a context menu and only once per gesture", () => {

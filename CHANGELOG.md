@@ -8,6 +8,7 @@ uploads, machine-specific service edits, or private signing material.
 
 ## Unreleased
 
+- A mouse click on the Agent Tmux title opens the title menu (feedback, reload); right-click and the phone long press still work.
 - Feedback from the web UI now starts an agent session named Atw in the atw
   checkout when none is running, and types the note once it waits at a prompt
   (`ATW_FEEDBACK_PANE` still pins a pane and never starts one;

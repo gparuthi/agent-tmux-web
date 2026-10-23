@@ -8,10 +8,11 @@ const MENU_GAP = 6;
 export type TitleMenuAnchor = { left: number; top: number; bottom: number };
 
 export type TitleLongPress = {
-  // Mouse users right-click instead; touch and pen long-press.
+  // Mouse users click or right-click; touch and pen long-press (a tap would fight scrolling).
   pointerDown: (press: { pointerType: string; isPrimary: boolean; clientX: number; clientY: number }) => void;
   pointerMove: (point: { clientX: number; clientY: number }) => void;
   cancel: () => void;
+  click: () => void;
   contextMenu: () => void;
 };
 
@@ -20,6 +21,7 @@ export function createTitleLongPress(onOpen: () => void): TitleLongPress {
   let timer: ReturnType<typeof setTimeout> | null = null;
   let startX = 0;
   let startY = 0;
+  let lastPointerType = "";
 
   const cancel = () => {
     if (timer !== null) {
@@ -31,6 +33,7 @@ export function createTitleLongPress(onOpen: () => void): TitleLongPress {
   return {
     pointerDown({ pointerType, isPrimary, clientX, clientY }) {
       cancel();
+      lastPointerType = pointerType;
       if (pointerType === "mouse" || !isPrimary) {
         return;
       }
@@ -47,6 +50,12 @@ export function createTitleLongPress(onOpen: () => void): TitleLongPress {
       }
     },
     cancel,
+    // The click after a touch tap stays inert: on phones only the long press opens the menu.
+    click() {
+      if (lastPointerType === "mouse") {
+        onOpen();
+      }
+    },
     contextMenu() {
       cancel();
       onOpen();
@@ -79,6 +88,10 @@ export function useTitleMenuGesture(onOpen: (anchor: TitleMenuAnchor) => void) {
     onPointerMove: useCallback((event: PointerEvent<HTMLElement>) => press.pointerMove(event), [press]),
     onPointerUp: press.cancel,
     onPointerCancel: press.cancel,
+    onClick: useCallback((event: MouseEvent<HTMLElement>) => {
+      anchorRef.current = event.currentTarget;
+      press.click();
+    }, [press]),
     onContextMenu: useCallback((event: MouseEvent<HTMLElement>) => {
       event.preventDefault();
       anchorRef.current = event.currentTarget;

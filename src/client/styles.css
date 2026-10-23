@@ -234,6 +234,7 @@ button:disabled {
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 800;
+  cursor: pointer;
   /* A long press opens the title menu, so no iOS callout or text selection. */
   -webkit-touch-callout: none;
   -webkit-user-select: none;
