@@ -109,10 +109,10 @@ export function TmuxSessionList({
     const state = showState ? formatTmuxPaneState(pane) : "";
     const said = showState ? pane.lastSaid ?? "" : "";
     const subParts: Array<[string, ReactNode]> = [
-      ...(pane.session ? [["target", <>
+      ...(pane.session ? [["target", <span className="tmux-session-sub-target">
         <span className="tmux-session-sub-session">{pane.session}</span>
         {window && <span className="tmux-session-sub-window">:{window}</span>}
-      </>] as [string, ReactNode]] : []),
+      </span>] as [string, ReactNode]] : []),
       ...(lastPrompt ? [["time", <span className="tmux-session-last-prompt">{lastPrompt}</span>] as [string, ReactNode]] : []),
       ...(state ? [["state", <span className="tmux-session-sub-state">{state}</span>] as [string, ReactNode]] : []),
       ...(said ? [["said", <span className="tmux-session-sub-said">{said}</span>] as [string, ReactNode]] : [])

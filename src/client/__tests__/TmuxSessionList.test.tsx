@@ -47,7 +47,7 @@ describe("TmuxSessionList", () => {
     expect(html).not.toContain('aria-label="gp, 1 pane"');
     expect(html.match(/tmux-session-group-header/g)).toHaveLength(1);
     expect(html).toContain('aria-expanded="false" aria-label="_hidden, 2 panes, Needs permission"');
-    expect(html).toContain('<span class="tmux-session-name">build agent</span><span class="tmux-session-sub"><span class="tmux-session-sub-session">main</span><span aria-hidden="true" class="tmux-session-sub-separator">·</span><span class="tmux-session-sub-state">working</span></span>');
+    expect(html).toContain('<span class="tmux-session-name">build agent</span><span class="tmux-session-sub"><span class="tmux-session-sub-target"><span class="tmux-session-sub-session">main</span></span><span aria-hidden="true" class="tmux-session-sub-separator">·</span><span class="tmux-session-sub-state">working</span></span>');
     expect(html).not.toContain("worker");
     expect(html).toContain('class="tmux-session-status-dot blocked"');
     // The main line is just the title: no detail text and no per-row pin button.
@@ -78,7 +78,7 @@ describe("TmuxSessionList", () => {
 
     expect(html.indexOf("Pinned")).toBeLessThan(html.indexOf("build agent"));
     expect(html.match(/>worker</g)).toHaveLength(1);
-    expect(html).toContain('<span class="tmux-session-name">worker</span><span class="tmux-session-sub"><span class="tmux-session-sub-session">_hidden</span></span>');
+    expect(html).toContain('<span class="tmux-session-name">worker</span><span class="tmux-session-sub"><span class="tmux-session-sub-target"><span class="tmux-session-sub-session">_hidden</span></span></span>');
     expect(html).toContain('aria-label="_hidden, 1 pane, Needs permission"');
   });
 
@@ -182,9 +182,9 @@ describe("TmuxSessionList", () => {
       <TmuxSessionList groupPreferences={[]} paneViews={allSeen} panes={entries} pinnedNames={[]} selected="%1" nowMs={nowMs} onSelect={vi.fn()} onToggleGroup={vi.fn()} />
     );
 
-    expect(html).toContain('<span class="tmux-session-title"><span class="tmux-session-name">build agent</span><span class="tmux-session-sub"><span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:5</span><span aria-hidden="true" class="tmux-session-sub-separator">·</span><span class="tmux-session-last-prompt">3h ago</span></span></span>');
+    expect(html).toContain('<span class="tmux-session-title"><span class="tmux-session-name">build agent</span><span class="tmux-session-sub"><span class="tmux-session-sub-target"><span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:5</span></span><span aria-hidden="true" class="tmux-session-sub-separator">·</span><span class="tmux-session-last-prompt">3h ago</span></span></span>');
     // No known prompt: the target alone, no "never".
-    expect(html).toContain('<span class="tmux-session-sub"><span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:6.1</span></span>');
+    expect(html).toContain('<span class="tmux-session-sub"><span class="tmux-session-sub-target"><span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:6.1</span></span></span>');
     expect(html).toContain('<span class="tmux-session-name">old row</span><span class="tmux-session-sub"><span class="tmux-session-last-prompt">2h ago</span></span>');
     expect(html).toContain('<span class="tmux-session-title"><span class="tmux-session-name">bare row</span></span>');
     expect(html).not.toContain("never");
@@ -201,7 +201,7 @@ describe("TmuxSessionList", () => {
       <TmuxSessionList groupPreferences={[["_hidden", false]]} paneViews={allSeen} panes={entries} pinnedNames={[]} selected="%1" nowMs={nowMs} onSelect={vi.fn()} onToggleGroup={vi.fn()} />
     );
     expect(expanded).not.toContain("tmux-session-group-time");
-    expect(expanded).toContain('<span class="tmux-session-sub-session">_hidden</span><span class="tmux-session-sub-window">:2</span>');
+    expect(expanded).toContain('<span class="tmux-session-sub-target"><span class="tmux-session-sub-session">_hidden</span><span class="tmux-session-sub-window">:2</span></span>');
   });
 
   it("words the status dot's state, keeping a blocked pane's reason", () => {
@@ -227,7 +227,7 @@ describe("TmuxSessionList", () => {
     ];
     const props = { groupPreferences: [], paneViews: allSeen, panes: entries, pinnedNames: [], selected: "%1", nowMs, onSelect: vi.fn(), onToggleGroup: vi.fn() };
     const separator = '<span aria-hidden="true" class="tmux-session-sub-separator">·</span>';
-    const target = '<span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:5</span>';
+    const target = '<span class="tmux-session-sub-target"><span class="tmux-session-sub-session">main</span><span class="tmux-session-sub-window">:5</span></span>';
     const time = '<span class="tmux-session-last-prompt">3h ago</span>';
 
     const html = renderToStaticMarkup(<TmuxSessionList {...props} />);

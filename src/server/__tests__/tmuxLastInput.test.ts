@@ -5,45 +5,43 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
-  buildTmuxClientActivityArgs,
-  latestTmuxInputAtMs,
-  parseTmuxClientActivity,
+  isTmuxSubmitInput,
   parseTmuxLastInputFile,
   pruneTmuxLastInput,
   storedTmuxInputAtMs,
+  tmuxLastPromptAtMs,
   TmuxLastInputStore
 } from "../tmuxLastInput.js";
 
-describe("tmux client input activity", () => {
-  it("asks list-clients for key activity and the viewed pane", () => {
-    expect(buildTmuxClientActivityArgs()).toEqual(["list-clients", "-F", "#{client_activity}\t#{pane_id}\t#{session_name}"]);
+describe("what counts as the owner's last prompt", () => {
+  // Regression: gpmon-fix showed "1m ago" from a Ghostty client's client_activity (focus-in, mouse
+  // wheel and window switches bump it) while its last typed prompt was 17h old.
+  const created = Date.parse("2026-10-28T13:15:38Z");
+  const transcriptPrompt = Date.parse("2026-10-29T05:18:12.427Z");
+
+  it("takes a live Claude pane's time from its transcript only, never from atw's stored record", () => {
+    const stored = Date.parse("2026-10-29T22:39:36Z");
+    expect(tmuxLastPromptAtMs({ claudeLive: true, claudePromptAtMs: transcriptPrompt, storedAtMs: stored, createdAtMs: created })).toBe(transcriptPrompt);
+    // No owner prompt in the transcript: show nothing rather than a keystroke time.
+    expect(tmuxLastPromptAtMs({ claudeLive: true, storedAtMs: stored, createdAtMs: created })).toBeUndefined();
   });
 
-  it("keeps the latest keystroke per pane and skips atw raw clients", () => {
-    const output = [
-      "1791137840\t%10\tgp",
-      "1791138742\t%5\tmain",
-      "1791138000\t%5\tmain",
-      "1791139999\t%5\tatw-raw-1a2b",
-      "1791139999\t%7\tlab--atw-raw-ff00",
-      "0\t%8\tmain",
-      "junk\t%9\tmain",
-      "1791138742\t\tmain",
-      "1791138742\tmain:0.0\tmain",
-      ""
-    ].join("\n");
-
-    expect([...parseTmuxClientActivity(output)]).toEqual([
-      ["%10", 1791137840000],
-      ["%5", 1791138742000]
-    ]);
+  it("takes other panes' time from atw submits newer than the session", () => {
+    expect(tmuxLastPromptAtMs({ claudeLive: false, storedAtMs: transcriptPrompt, createdAtMs: created })).toBe(transcriptPrompt);
+    expect(tmuxLastPromptAtMs({ claudeLive: false, storedAtMs: created - 1, createdAtMs: created })).toBeUndefined();
+    expect(tmuxLastPromptAtMs({ claudeLive: false, createdAtMs: created })).toBeUndefined();
   });
 
-  it("takes the newest of atw sends and terminal keystrokes", () => {
-    expect(latestTmuxInputAtMs(5, 9)).toBe(9);
-    expect(latestTmuxInputAtMs(undefined, 9)).toBe(9);
-    expect(latestTmuxInputAtMs(undefined, undefined)).toBeUndefined();
-    expect(latestTmuxInputAtMs(0)).toBeUndefined();
+  it("counts raw-view Enter as a submit, but not focus reports, arrows, typing or a pasted newline", () => {
+    expect(isTmuxSubmitInput("\r")).toBe(true);
+    expect(isTmuxSubmitInput("ls -la\r")).toBe(true);
+    expect(isTmuxSubmitInput("\x1b[200~line one\nline two\x1b[201~\r")).toBe(true);
+    // Claude Code turns on focus reporting, so the browser's xterm sends these on every focus change.
+    expect(isTmuxSubmitInput("\x1b[I")).toBe(false);
+    expect(isTmuxSubmitInput("\x1b[O")).toBe(false);
+    expect(isTmuxSubmitInput("\x1b[A")).toBe(false);
+    expect(isTmuxSubmitInput("x")).toBe(false);
+    expect(isTmuxSubmitInput("\x1b[200~line one\nline two\x1b[201~")).toBe(false);
   });
 });
 

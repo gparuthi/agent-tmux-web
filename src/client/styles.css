@@ -684,7 +684,8 @@ textarea:focus {
   min-width: 0;
 }
 
-/* "main:5 · 3h ago": only the session name ellipsizes, so the window and time stay readable. */
+/* Phone: one line. The reply takes only the space left over (basis 0), so the session name gives way
+   only once the reply is gone; the window number, time and state never shrink. */
 .tmux-session-sub,
 .tmux-session-group-time {
   color: var(--text-muted);
@@ -699,14 +700,20 @@ textarea:focus {
   min-width: 0;
 }
 
-.tmux-session-sub-separator {
-  padding: 0 3px;
+.tmux-session-sub-target {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
 }
 
 .tmux-session-sub-session {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.tmux-session-sub-separator {
+  padding: 0 3px;
 }
 
 .tmux-session-sub-window,
@@ -717,12 +724,33 @@ textarea:focus {
   flex: none;
 }
 
-/* The last reply gives way first, long before the session name. */
 .tmux-session-sub-said {
-  flex: 0 1000 auto;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Desktop: up to two lines; only the reply wraps and is clamped, the target is never cut. */
+@media (min-width: 1121px) {
+  .tmux-session-sub {
+    display: -webkit-box;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+  }
+
+  .tmux-session-sub-target,
+  .tmux-session-sub-session,
+  .tmux-session-sub-window,
+  .tmux-session-last-prompt,
+  .tmux-session-sub-state {
+    display: inline;
+    overflow: visible;
+    white-space: nowrap;
+  }
 }
 
 .tmux-session-row.active .tmux-session-sub {

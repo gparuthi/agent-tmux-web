@@ -1,49 +1,25 @@
-import { execFile } from "node:child_process";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { promisify } from "node:util";
-
-import { isTmuxRawSessionName } from "./terminal.js";
-
-const execFileAsync = promisify(execFile);
 
 export const DEFAULT_TMUX_LAST_INPUT_FILE = path.join(os.homedir(), ".local", "state", "atw", "last-input.json");
 export const MAX_TMUX_LAST_INPUT_ENTRIES = 500;
 const WRITE_DEBOUNCE_MS = 2000;
 
-// client_activity is the client's last key input (not output); pane_id is the pane it is looking at.
-export function buildTmuxClientActivityArgs(): string[] {
-  return ["list-clients", "-F", "#{client_activity}\t#{pane_id}\t#{session_name}"];
+// Raw-view input that submits: Enter typed outside a bracketed paste. Focus reports (ESC [ I / ESC [ O),
+// arrows and plain typing are not prompts.
+export function isTmuxSubmitInput(data: string): boolean {
+  return /[\r\n]/.test(data.replace(/\x1b\[200~[\s\S]*?(?:\x1b\[201~|$)/g, ""));
 }
 
-// Latest owner keystroke per pane from real terminals; atw's own raw clients are skipped (counted at send time).
-export function parseTmuxClientActivity(output: string): Map<string, number> {
-  const latest = new Map<string, number>();
-  for (const line of output.split(/\r?\n/)) {
-    const [activity, paneId, sessionName] = line.split("\t");
-    const atMs = Number(activity) * 1000;
-    if (!paneId || !/^%\d+$/.test(paneId) || !Number.isFinite(atMs) || atMs <= 0 || !sessionName || isTmuxRawSessionName(sessionName)) {
-      continue;
-    }
-    latest.set(paneId, Math.max(latest.get(paneId) ?? 0, atMs));
+// tmux client_activity is never used: focus events, mouse wheel and window switching all bump it, and it
+// lands on whichever pane the client shows. Claude panes trust only the transcript's owner-typed prompt;
+// other panes only atw submits newer than the session.
+export function tmuxLastPromptAtMs(input: { claudeLive: boolean; claudePromptAtMs?: number; storedAtMs?: number; createdAtMs?: number }): number | undefined {
+  if (input.claudeLive) {
+    return input.claudePromptAtMs;
   }
-  return latest;
-}
-
-export async function readTmuxClientActivity(): Promise<Map<string, number>> {
-  try {
-    const { stdout } = await execFileAsync("tmux", buildTmuxClientActivityArgs());
-    return parseTmuxClientActivity(stdout);
-  } catch {
-    // No tmux server or no clients: nothing typed in a real terminal.
-    return new Map();
-  }
-}
-
-export function latestTmuxInputAtMs(...values: Array<number | undefined>): number | undefined {
-  const known = values.filter((value): value is number => typeof value === "number" && value > 0);
-  return known.length > 0 ? Math.max(...known) : undefined;
+  return storedTmuxInputAtMs(input.storedAtMs, input.createdAtMs);
 }
 
 // Pane ids are reused after a tmux restart, so a record older than the pane belongs to a previous pane.
@@ -70,7 +46,7 @@ export function pruneTmuxLastInput(entries: Map<string, number>, maxEntries = MA
   return new Map([...entries].sort((left, right) => right[1] - left[1]).slice(0, maxEntries));
 }
 
-// Last time atw sent input to each pane target; persisted with a debounced atomic write.
+// Last time atw submitted a prompt to each pane target; persisted with a debounced atomic write.
 export class TmuxLastInputStore {
   private entries = new Map<string, number>();
   private writeTimer: NodeJS.Timeout | null = null;

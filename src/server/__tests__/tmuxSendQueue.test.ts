@@ -360,14 +360,14 @@ describe("tmux send endpoints", () => {
   let world: World;
   let queue: TmuxSendQueue;
   let keys: Array<{ session: string; key: string }> = [];
-  let inputs: string[] = [];
+  let prompts: string[] = [];
   let submitted: Array<{ session: string; label: string | null }> = [];
 
   beforeEach(async () => {
     world = new World();
     queue = world.queue();
     keys = [];
-    inputs = [];
+    prompts = [];
     submitted = [];
     const app = express();
     app.use(express.json());
@@ -377,7 +377,7 @@ describe("tmux send endpoints", () => {
       sendKey: async (session, key) => {
         keys.push({ session, key });
       },
-      onInput: (session) => inputs.push(session),
+      onPrompt: (session) => prompts.push(session),
       onSubmitted: (session, label) => submitted.push({ session, label })
     }));
     app.use((error: unknown, _req: Request, res: Response, _next: NextFunction) => {
@@ -408,7 +408,18 @@ describe("tmux send endpoints", () => {
     expect(result).toEqual({ status: 200, json: { ok: true } });
     expect(world.typed).toEqual([{ target: "%1", text: "hello", enter: true, submitKey: "enter" }]);
     expect(submitted).toEqual([{ session: "%1", label: "Task" }]);
-    expect(inputs).toEqual(["%1"]);
+    expect(prompts).toEqual(["%1"]);
+  });
+
+  it("counts only submitted text as a prompt, never key-strip keys or Enter-less text", async () => {
+    world.set("%1", "claude", "idle");
+    await call("POST", "/api/tmux/keys", { session: "%1", key: "Escape" });
+    await call("POST", "/api/tmux/send", { session: "%1", text: "draft", enter: false });
+    expect(prompts).toEqual([]);
+    world.set("%5", "hax", "working");
+    await call("POST", "/api/tmux/send", { session: "%5", text: "held" });
+    // A held message is still one the owner sent.
+    expect(prompts).toEqual(["%5"]);
   });
 
   it("answers with the held message for a working hax pane, lists it, and cancels it", async () => {

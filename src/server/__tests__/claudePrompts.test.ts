@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   ClaudePromptTimes,
   claudeProjectDirName,
+  isOwnerTypedPrompt,
   isLiveClaudePane,
   lastAssistantText,
   lastHumanPromptAtMs,
@@ -54,6 +55,25 @@ describe("Claude prompt source", () => {
     ].join("\n");
     expect(lastHumanPromptAtMs(tail)).toBe(Date.parse("2026-10-04T17:30:00.000Z"));
     expect(lastHumanPromptAtMs(userLine("2026-10-04T17:35:00.000Z", "task-notification"))).toBeUndefined();
+  });
+
+  it("counts only prompts the owner submitted, shaped like Claude Code's real records", () => {
+    // A real typed prompt: string content, human origin, promptSource typed.
+    const typed = { type: "user", timestamp: "2026-10-29T22:41:21.438Z", origin: { kind: "human" }, promptSource: "typed", turnOrigin: "human", isSidechain: false, userType: "external", message: { role: "user", content: "take 2 lines on desktop" } };
+    expect(isOwnerTypedPrompt(typed)).toBe(true);
+    expect(isOwnerTypedPrompt({ ...typed, promptSource: "queued" })).toBe(true);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: [{ type: "text", text: "with an image" }, { type: "image" }] } })).toBe(true);
+    expect(isOwnerTypedPrompt({ ...typed, isMeta: true })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, isSidechain: true })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, isCompactSummary: true })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, isVisibleInTranscriptOnly: true })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, origin: { kind: "task-notification" } })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, origin: undefined })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: "<local-command-stdout>Set model</local-command-stdout>" } })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: "<system-reminder>hook said</system-reminder>" } })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: [{ type: "text", text: "<bash-stdout>ok</bash-stdout>" }] } })).toBe(false);
+    expect(isOwnerTypedPrompt({ ...typed, message: { role: "user", content: "  " } })).toBe(false);
   });
 
   it("keeps the agent's newest main-thread text, skipping thinking, tool calls, subagents and cut lines", () => {
@@ -114,6 +134,24 @@ describe("ClaudePromptTimes", () => {
     await times.refresh(panes);
     expect([...times.get(panes)]).toEqual([["%7", Date.parse("2026-10-04T17:30:00.000Z")]]);
     expect([...times.said()]).toEqual([["%7", "All green."]]);
+    // The dead session's pane is not a live Claude pane.
+    expect([...times.livePanes()]).toEqual(["%7"]);
+  });
+
+  it("reads further back once when a tool-heavy tail holds no prompt, as after a restart", async () => {
+    // Regression: gpmon-fix lost its prompt time after a restart because 512 KiB of tool calls followed it.
+    const cwd = "/Users/me/.gp";
+    await mkdir(path.join(dir, "sessions"), { recursive: true });
+    await mkdir(path.join(dir, "projects", claudeProjectDirName(cwd)), { recursive: true });
+    await writeFile(path.join(dir, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "busy", cwd, tmux: "gp:@4.%165" }));
+    const toolCall = assistantLine([{ type: "tool_use", id: "t1", name: "Bash", input: { command: "x".repeat(2000) } }]);
+    const lines = [userLine("2026-10-29T05:18:12.427Z", "human"), ...Array.from({ length: 400 }, () => toolCall), ""];
+    await writeFile(path.join(dir, "projects", claudeProjectDirName(cwd), "busy.jsonl"), lines.join("\n"));
+
+    const times = new ClaudePromptTimes(dir);
+    const panes = [{ paneId: "%165", panePid: process.pid }];
+    await times.refresh(panes);
+    expect([...times.get(panes)]).toEqual([["%165", Date.parse("2026-10-29T05:18:12.427Z")]]);
   });
 
   it("returns nothing when there is no Claude config", async () => {

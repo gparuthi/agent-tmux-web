@@ -70,7 +70,7 @@ import {
   resolveUploadRoot,
   saveUploadedFileForClient
 } from "./uploads.js";
-import { DEFAULT_TMUX_LAST_INPUT_FILE, latestTmuxInputAtMs, readTmuxClientActivity, storedTmuxInputAtMs, TmuxLastInputStore } from "./tmuxLastInput.js";
+import { DEFAULT_TMUX_LAST_INPUT_FILE, isTmuxSubmitInput, tmuxLastPromptAtMs, TmuxLastInputStore } from "./tmuxLastInput.js";
 import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTmuxSendRouter, DEFAULT_TMUX_SEND_QUEUE_FILE, TmuxSendQueue, toTmuxQueuedMessageDto } from "./tmuxSendQueue.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
@@ -412,8 +412,7 @@ app.use(createTpalActionsRouter({
 app.use(createTmuxRenameRouter({
   listPanes: listTmuxSessions,
   readPaneAgents: readTmuxPaneAgents,
-  submitText: (target, text) => sendTmuxText(target, text, true, "enter"),
-  onSubmitted: (target) => tmuxLastInput.record(target)
+  submitText: (target, text) => sendTmuxText(target, text, true, "enter")
 }));
 
 app.use(createTmuxFeedbackRouter({
@@ -485,7 +484,7 @@ app.use(createTmuxSendRouter({
   queue: tmuxSendQueue,
   resolveSubmitKey: resolveTmuxSubmitKey,
   sendKey: sendTmuxKey,
-  onInput: (session) => tmuxLastInput.record(session),
+  onPrompt: (session) => tmuxLastInput.record(session),
   onSubmitted: (session, label) => {
     tmuxWatch.startWatch(session, label ?? "Tmux task");
   }
@@ -494,7 +493,6 @@ app.use(createTmuxSendRouter({
 app.post("/api/tmux/interrupt", asyncHandler(async (req, res) => {
   const body = req.body as Record<string, unknown>;
   const session = requireString(body.session, "session");
-  tmuxLastInput.record(session);
   await interruptTmuxPane(session, await resolveTmuxInterruptKey(session, body.interruptKey));
   tmuxWatch.cancelWatch(session);
   const capture = await captureTmuxPaneView(session, TMUX_CAPTURE_HISTORY_LINES);
@@ -539,17 +537,17 @@ app.get("/api/tmux/watch/status", asyncHandler(async (_req, res) => {
 
 async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | null): Promise<TmuxSessionDto[]> {
   const sessions = await listTmuxSessions();
-  const [harnessStatuses, clientActivity, paneAgents, gpmonStatuses] = await Promise.all([
+  const [harnessStatuses, paneAgents, gpmonStatuses] = await Promise.all([
     readTmuxHarnessStatuses(sessions),
-    readTmuxClientActivity(),
     readTmuxPaneAgents(sessions),
     agentRowsCache.statuses()
   ]);
   const nowMs = Date.now();
-  // Local panes only: list-clients and Claude's session files describe this host's tmux server.
+  // Local panes only: Claude's session files describe this host's tmux server.
   const localPanes = sessions.filter((session) => session.name === session.paneId);
   const promptTimes = claudePromptTimes.get(localPanes.map((session) => ({ paneId: session.name, panePid: session.panePid })));
   const saidByPane = claudePromptTimes.said();
+  const claudePanes = claudePromptTimes.livePanes();
   return Promise.all(sessions.map(async (session) => {
     const {
       clientCount,
@@ -571,12 +569,13 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       visibleStatus,
       harnessStatuses.get(session.name)
     );
-    const lastInputAtMs = latestTmuxInputAtMs(
-      storedTmuxInputAtMs(tmuxLastInput.get(session.name), session.createdAtMs),
-      // A client idle since before the session existed never typed into it.
-      local ? storedTmuxInputAtMs(clientActivity.get(session.name), session.createdAtMs) : undefined,
-      local ? promptTimes.get(session.name) : undefined
-    );
+    const lastInputAtMs = tmuxLastPromptAtMs({
+      // The process tree knows a Claude pane before the first transcript refresh lands.
+      claudeLive: local && (paneAgents.get(session.name) === "claude" || claudePanes.has(session.name)),
+      claudePromptAtMs: local ? promptTimes.get(session.name) : undefined,
+      storedAtMs: tmuxLastInput.get(session.name),
+      createdAtMs: session.createdAtMs
+    });
     const agent = paneAgents.get(session.name);
     const lastSaid = local ? saidByPane.get(session.name) : undefined;
     const queued = tmuxSendQueue.list(session.name).map(toTmuxQueuedMessageDto);
@@ -783,7 +782,9 @@ tmuxWss.on("connection", async (socket, req) => {
 
     if (message.type === "input" && typeof message.data === "string") {
       child.stdin.write(message.data);
-      tmuxLastInput.record(session);
+      if (isTmuxSubmitInput(message.data)) {
+        tmuxLastInput.record(session);
+      }
       if (/[\r\n]/.test(message.data)) {
         tmuxWatch.startWatch(session, "Tmux task");
       }

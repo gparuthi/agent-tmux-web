@@ -8,6 +8,8 @@ const execFileAsync = promisify(execFile);
 
 export const DEFAULT_CLAUDE_CONFIG_DIR = path.join(os.homedir(), ".claude");
 const TRANSCRIPT_TAIL_BYTES = 512 * 1024;
+// Once per transcript (first sight, e.g. after a restart) when a tool-heavy tail holds no prompt.
+export const TRANSCRIPT_DEEP_TAIL_BYTES = 16 * 1024 * 1024;
 const REFRESH_INTERVAL_MS = 10_000;
 const REFRESH_TIMEOUT_MS = 3000;
 export const MAX_CLAUDE_SAID_CHARS = 140;
@@ -43,6 +45,37 @@ export function claudeProjectDirName(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, "-");
 }
 
+type ClaudeUserRecord = {
+  type?: unknown;
+  timestamp?: unknown;
+  origin?: { kind?: unknown };
+  isMeta?: unknown;
+  isSidechain?: unknown;
+  isCompactSummary?: unknown;
+  isVisibleInTranscriptOnly?: unknown;
+  message?: { content?: unknown };
+};
+
+// Text Claude Code itself writes into user records: command and shell output, hook output, reminders.
+const GENERATED_USER_TEXT = /^\s*<(?:local-command-stdout|local-command-caveat|local-command-stderr|bash-stdout|bash-stderr|system-reminder|user-prompt-submit-hook|command-stdout)\b/;
+
+// A prompt the owner submitted: human origin, main thread, not a tool result, summary or generated text.
+export function isOwnerTypedPrompt(record: ClaudeUserRecord): boolean {
+  if (record.type !== "user" || record.origin?.kind !== "human") {
+    return false;
+  }
+  if (record.isMeta === true || record.isSidechain === true || record.isCompactSummary === true || record.isVisibleInTranscriptOnly === true) {
+    return false;
+  }
+  const content = record.message?.content;
+  if (typeof content === "string") {
+    return content.trim() !== "" && !GENERATED_USER_TEXT.test(content);
+  }
+  const blocks = Array.isArray(content) ? content as Array<{ type?: unknown; text?: unknown }> : [];
+  const texts = blocks.filter((block) => block.type === "text" && typeof block.text === "string").map((block) => block.text as string);
+  return !blocks.some((block) => block.type === "tool_result") && texts.some((text) => text.trim() !== "" && !GENERATED_USER_TEXT.test(text));
+}
+
 // Newest owner-typed prompt in a transcript tail; peers, tool results and meta records are ignored.
 export function lastHumanPromptAtMs(transcriptTail: string): number | undefined {
   const lines = transcriptTail.split("\n");
@@ -52,9 +85,9 @@ export function lastHumanPromptAtMs(transcriptTail: string): number | undefined 
       continue;
     }
     try {
-      const record = JSON.parse(line) as { type?: unknown; timestamp?: unknown; origin?: { kind?: unknown } };
+      const record = JSON.parse(line) as ClaudeUserRecord;
       const atMs = typeof record.timestamp === "string" ? Date.parse(record.timestamp) : NaN;
-      if (record.type === "user" && record.origin?.kind === "human" && Number.isFinite(atMs)) {
+      if (isOwnerTypedPrompt(record) && Number.isFinite(atMs)) {
         return atMs;
       }
     } catch {
@@ -135,6 +168,7 @@ type TranscriptSummary = { atMs: number | undefined; said: string | undefined };
 export class ClaudePromptTimes {
   private latest = new Map<string, number>();
   private latestSaid = new Map<string, string>();
+  private live = new Set<string>();
   private refreshedAtMs = 0;
   private refreshing: Promise<void> | null = null;
   private readonly transcriptCache = new Map<string, TranscriptSummary & { size: number; mtimeMs: number }>();
@@ -155,6 +189,11 @@ export class ClaudePromptTimes {
     return this.latest;
   }
 
+  // Panes running a live Claude Code session, prompt found or not; their prompt time comes only from the transcript.
+  livePanes(): Set<string> {
+    return this.live;
+  }
+
   // What each pane's agent last said, from the same cached refresh as get(); never triggers one itself.
   said(): Map<string, string> {
     return this.latestSaid;
@@ -166,18 +205,21 @@ export class ClaudePromptTimes {
     if (names.length === 0) {
       this.latest = new Map();
       this.latestSaid = new Map();
+      this.live = new Set();
       return;
     }
     const parents = parseProcessParents((await execFileAsync("ps", ["-A", "-o", "pid=,ppid="])).stdout);
     const panesById = new Map(panes.map((pane) => [pane.paneId, pane]));
     const next = new Map<string, number>();
     const nextSaid = new Map<string, string>();
+    const nextLive = new Set<string>();
     const visited = new Set<string>();
     for (const name of names) {
       const session = parseClaudeSessionFile(await readFile(path.join(sessionsDir, name), "utf8").catch(() => ""));
       if (!session || !isLiveClaudePane(session, panesById.get(session.paneId), parents)) {
         continue;
       }
+      nextLive.add(session.paneId);
       const transcriptPath = path.join(this.configDir, "projects", claudeProjectDirName(session.cwd), `${session.sessionId}.jsonl`);
       visited.add(transcriptPath);
       const { atMs, said } = await this.readTranscript(transcriptPath);
@@ -190,6 +232,7 @@ export class ClaudePromptTimes {
     }
     this.latest = next;
     this.latestSaid = nextSaid;
+    this.live = nextLive;
     for (const transcriptPath of this.transcriptCache.keys()) {
       if (!visited.has(transcriptPath)) {
         this.transcriptCache.delete(transcriptPath);
@@ -209,7 +252,11 @@ export class ClaudePromptTimes {
     }
     const tail = await readTail(transcriptPath, TRANSCRIPT_TAIL_BYTES);
     // A long tool-heavy turn can push the prompt or text out of the tail; keep the last one seen.
-    const summary = { atMs: lastHumanPromptAtMs(tail) ?? cached?.atMs, said: lastAssistantText(tail) ?? cached?.said };
+    let summary = { atMs: lastHumanPromptAtMs(tail) ?? cached?.atMs, said: lastAssistantText(tail) ?? cached?.said };
+    if (!cached && summary.atMs === undefined && info.size > TRANSCRIPT_TAIL_BYTES) {
+      const deep = await readTail(transcriptPath, TRANSCRIPT_DEEP_TAIL_BYTES);
+      summary = { atMs: lastHumanPromptAtMs(deep), said: summary.said ?? lastAssistantText(deep) };
+    }
     this.transcriptCache.set(transcriptPath, { size: info.size, mtimeMs: info.mtimeMs, ...summary });
     return summary;
   }

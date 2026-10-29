@@ -623,4 +623,16 @@ describe("color theme CSS", () => {
     expect(shell).toContain("overflow: clip;");
     expect(table).toContain("overflow-x: auto;");
   });
+
+  it("clamps the session sub-line to two lines on desktop and lets only the reply give way on phones", () => {
+    const css = readFileSync(join(process.cwd(), "src/client/styles.css"), "utf8");
+    const said = extractBalancedCssBlock(css, "\n.tmux-session-sub-said {").text;
+    const desktop = extractBalancedCssBlock(css, "/* Desktop: up to two lines").text;
+
+    // Basis 0: the reply only takes leftover space, so the session name is not cut while a reply shows.
+    expect(said).toContain("flex: 1 1 0;");
+    expect(desktop).toContain("@media (min-width: 1121px)");
+    expect(desktop).toContain("-webkit-line-clamp: 2;");
+    expect(desktop).toMatch(/\.tmux-session-sub-session,[\s\S]*white-space: nowrap;/);
+  });
 });

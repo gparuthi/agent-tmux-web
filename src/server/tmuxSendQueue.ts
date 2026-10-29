@@ -339,12 +339,13 @@ export type TmuxSendRouterOptions = {
   resolveSubmitKey: (session: string, requested: unknown) => Promise<TmuxSubmitKey>;
   // Key-strip keys (Esc, Ctrl-C, arrows) go straight to the pane, never through the queue.
   sendKey: (session: string, key: string) => Promise<void>;
-  onInput?: (session: string) => void;
+  // The owner submitted text (Enter), typed now or held; key-strip keys and Enter-less text are not prompts.
+  onPrompt?: (session: string) => void;
   // Text with Enter was typed now, not held.
   onSubmitted?: (session: string, label: string | null) => void;
 };
 
-export function createTmuxSendRouter({ queue, resolveSubmitKey, sendKey, onInput, onSubmitted }: TmuxSendRouterOptions): Router {
+export function createTmuxSendRouter({ queue, resolveSubmitKey, sendKey, onPrompt, onSubmitted }: TmuxSendRouterOptions): Router {
   const router = Router();
 
   router.post("/api/tmux/send", handle(async (req, res) => {
@@ -353,7 +354,9 @@ export function createTmuxSendRouter({ queue, resolveSubmitKey, sendKey, onInput
     const text = requireText(body.text, "text");
     const enter = body.enter !== false;
     const label = typeof body.label === "string" && body.label.trim() ? body.label.trim() : null;
-    onInput?.(session);
+    if (enter) {
+      onPrompt?.(session);
+    }
     const queued = await queue.send({
       target: session,
       text,
@@ -371,7 +374,6 @@ export function createTmuxSendRouter({ queue, resolveSubmitKey, sendKey, onInput
     const body = (req.body ?? {}) as Record<string, unknown>;
     const session = requireText(body.session, "session");
     await sendKey(session, typeof body.key === "string" ? body.key : "");
-    onInput?.(session);
     res.json({ ok: true });
   }));
 
