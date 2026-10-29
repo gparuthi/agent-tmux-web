@@ -250,6 +250,10 @@ export function mergeAgentDirectories(
 ): AgentDirectoryDto[] {
   const best = new Map<string, DirectoryCandidate>();
   for (const candidate of candidates) {
+    // Home itself is where idle shells sit, not a project; it can still be typed.
+    if (path.resolve(candidate.path) === path.resolve(homeDir)) {
+      continue;
+    }
     const existing = best.get(candidate.path);
     best.set(candidate.path, {
       path: candidate.path,

@@ -17,7 +17,7 @@ import {
   parseTmuxPaneViews,
   parseTmuxSessionGroupPreferences,
   setTmuxSessionGroupCollapsed,
-  tmuxPaneGroupDetail,
+  tmuxGroupLastInputAtMs,
   tmuxPaneSelectionOnLoad,
   tmuxPaneStatus,
   tmuxRailPaneForDigit,
@@ -54,30 +54,27 @@ describe("tmux session groups", () => {
     pane("%5", "gp")
   ];
 
-  it("groups panes by tmux session in first-appearance order", () => {
+  it("lists every ordinary session's panes in one flat list, with only _ sessions grouped after it", () => {
     const { pinned, groups } = groupTmuxPanes(panes, []);
     expect(pinned).toEqual([]);
     expect(groups.map(({ session, panes: members }) => [session, members.map(({ name }) => name)])).toEqual([
-      ["main", ["%1", "%3"]],
-      ["gp", ["%2", "%5"]],
+      [null, ["%1", "%2", "%3", "%5"]],
       ["_hidden", ["%4"]]
     ]);
   });
 
-  it("lifts pinned panes out of their groups in server order and drops emptied groups", () => {
+  it("lifts pinned panes out of the list, server order on ties, and drops an emptied _ group", () => {
     const { pinned, groups } = groupTmuxPanes(panes, ["%5", "%4", "%1"]);
     expect(pinned.map(({ name }) => name)).toEqual(["%1", "%4", "%5"]);
     expect(groups.map(({ session, panes: members }) => [session, members.map(({ name }) => name)])).toEqual([
-      ["main", ["%3"]],
-      ["gp", ["%2"]]
+      [null, ["%2", "%3"]]
     ]);
   });
 
-  it("keeps legacy rows without a tmux session in one ungrouped bucket", () => {
+  it("keeps legacy rows without a tmux session in the flat list", () => {
     const { groups } = groupTmuxPanes([pane("agent-demo", undefined), pane("%1", "main"), pane("infra", undefined)], []);
     expect(groups.map(({ session, panes: members }) => [session, members.map(({ name }) => name)])).toEqual([
-      [null, ["agent-demo", "infra"]],
-      ["main", ["%1"]]
+      [null, ["agent-demo", "%1", "infra"]]
     ]);
   });
 
@@ -95,12 +92,6 @@ describe("tmux session groups", () => {
     expect(aggregateTmuxSessionStatus([pane("%1", "a", { status: WORKING }), pane("%2", "a")])).toEqual(WORKING);
     expect(aggregateTmuxSessionStatus([])).toEqual(tmuxPaneStatus(pane("%9", "a")));
     expect(tmuxPaneStatus(pane("%9", "a")).kind).toBe("unknown");
-  });
-
-  it("drops the redundant session prefix from pane details inside a group", () => {
-    expect(tmuxPaneGroupDetail(pane("%1", "main", { label: "main:1.0 · zsh · ~/work" }))).toBe("1.0 · zsh · ~/work");
-    expect(tmuxPaneGroupDetail(pane("%1", "main", { label: "other:1.0" }))).toBe("other:1.0");
-    expect(tmuxPaneGroupDetail(pane("%1", "main"))).toBe("%1");
   });
 });
 
@@ -156,7 +147,7 @@ describe("tmux session group expansion preferences", () => {
 });
 
 describe("tmux session ordering by last owner input", () => {
-  it("sorts groups by their newest pane input and panes within a group, ties keeping server order", () => {
+  it("sorts the flat list newest input first across sessions, ties keeping server order", () => {
     const { pinned, groups } = groupTmuxPanes([
       pane("%1", "main", { lastInputAtMs: 100 }),
       pane("%2", "gp"),
@@ -169,11 +160,42 @@ describe("tmux session ordering by last owner input", () => {
 
     expect(pinned.map(({ name }) => name)).toEqual(["%3"]);
     expect(groups.map(({ session, panes: members }) => [session, members.map(({ name }) => name)])).toEqual([
-      ["fleet", ["%4"]],
-      ["main", ["%1", "%5"]],
-      ["gp", ["%2", "%6"]],
+      [null, ["%4", "%1", "%2", "%5", "%6"]],
       ["_hidden", ["%7"]]
     ]);
+  });
+
+  it("puts dated panes before undated ones, newest first, and keeps equal times in server order", () => {
+    const order = (entries: TmuxSessionDto[]) => groupTmuxPanes(entries, []).groups[0]!.panes.map(({ name }) => name);
+    const entries = [
+      pane("%1", "main"),
+      pane("%2", "gp", { lastInputAtMs: 500 }),
+      pane("%3", "main", { lastInputAtMs: 900 }),
+      pane("%4", "lab"),
+      pane("%5", "gp", { lastInputAtMs: 500 }),
+      pane("%6", "lab", { lastInputAtMs: 500 })
+    ];
+    expect(order(entries)).toEqual(["%3", "%2", "%5", "%6", "%1", "%4"]);
+    // The same times on the next poll give the same order, however often it is recomputed.
+    expect(order(entries.map((entry) => ({ ...entry })))).toEqual(order(entries));
+    // Only a changed time moves a row: %6 typed into now jumps to the top, the rest keep their places.
+    expect(order(entries.map((entry) => entry.name === "%6" ? { ...entry, lastInputAtMs: 1000 } : entry)))
+      .toEqual(["%6", "%3", "%2", "%5", "%1", "%4"]);
+  });
+
+  it("pins sort newest first too", () => {
+    const { pinned } = groupTmuxPanes([pane("%1", "main", { lastInputAtMs: 1 }), pane("%2", "gp"), pane("%3", "gp", { lastInputAtMs: 9 })], ["%1", "%2", "%3"]);
+    expect(pinned.map(({ name }) => name)).toEqual(["%3", "%1", "%2"]);
+  });
+
+  it("gives a session its newest pane input, 0 when no pane has one", () => {
+    expect(tmuxGroupLastInputAtMs([
+      pane("%1", "main", { lastInputAtMs: 100 }),
+      pane("%2", "main"),
+      pane("%3", "main", { lastInputAtMs: 300 })
+    ])).toBe(300);
+    expect(tmuxGroupLastInputAtMs([pane("%1", "main"), pane("%2", "main")])).toBe(0);
+    expect(tmuxGroupLastInputAtMs([])).toBe(0);
   });
 });
 
@@ -191,7 +213,7 @@ describe("agent pane filter", () => {
   it("lists only panes running claude, codex, opencode or pi by default", () => {
     expect(filterTmuxAgentPanes(entries, false, "").map(({ name }) => name)).toEqual(["%1", "%3", "%4", "%5"]);
     const { groups } = groupTmuxPanes(filterTmuxAgentPanes(entries, false, ""), []);
-    expect(groups.map(({ session }) => session)).toEqual(["main", "gp", "fleet"]);
+    expect(groups.map(({ session, panes: members }) => [session, members.map(({ name }) => name)])).toEqual([[null, ["%1", "%3", "%4", "%5"]]]);
   });
 
   it("keeps the selected pane visible and shows everything when asked", () => {
@@ -258,9 +280,10 @@ describe("rail order and the pane after a snooze", () => {
     pane("%5", "gp", { lastInputAtMs: 50 })
   ];
 
-  it("lists pinned panes, then expanded groups, skipping collapsed ones", () => {
+  it("lists pinned panes, then the flat list, then expanded _ groups, skipping collapsed ones", () => {
     expect(visibleTmuxRailPanes(rail, ["%5"], []).map((entry) => entry.name)).toEqual(["%5", "%1", "%2", "%3"]);
-    expect(visibleTmuxRailPanes(rail, [], [["_hidden", false], ["main", true]]).map((entry) => entry.name)).toEqual(["%4", "%3", "%5"]);
+    // A stored collapse choice for an ordinary session no longer hides anything.
+    expect(visibleTmuxRailPanes(rail, [], [["_hidden", false], ["main", true]]).map((entry) => entry.name)).toEqual(["%1", "%2", "%3", "%5", "%4"]);
   });
 
   const all: TmuxRailView = { pinnedNames: [], preferences: [], showAll: true };
@@ -287,7 +310,7 @@ describe("rail order and the pane after a snooze", () => {
 describe("the pane after a close, snooze or vanished pane", () => {
   const agent = (name: string, session: string, lastInputAtMs: number, extra: Partial<TmuxSessionDto> = {}) =>
     pane(name, session, { currentCommand: "claude", lastInputAtMs, ...extra });
-  // Rail order (agents only): main %3 %4, then gp %1; zsh %2 is filtered out.
+  // Rail order (agents only): %3, %1, %4 by last input; zsh %2 is filtered out.
   const entries = [
     agent("%30", "_hidden", 900, { attached: true, windowActive: true, paneActive: true }),
     agent("%31", "_ctr_bootstrap", 950),
@@ -302,7 +325,7 @@ describe("the pane after a close, snooze or vanished pane", () => {
   const without = (name: string) => entries.filter((entry) => entry.name !== name);
 
   it("takes the next rail row, else the previous one, never raw tmux order", () => {
-    expect(nextTmuxRailPaneAfter(rail(entries, "%3"), "%3", without("%3"), view)).toBe("%4");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%3"), "%3", without("%3"), view)).toBe("%1");
     expect(nextTmuxRailPaneAfter(rail(entries, "%1"), "%1", without("%1"), view)).toBe("%4");
   });
 
@@ -310,11 +333,11 @@ describe("the pane after a close, snooze or vanished pane", () => {
     const before = rail(entries, "%4");
     expect(nextTmuxRailPaneAfter(before, "%4", without("%4"), view)).toBe("%1");
     const allView = { ...view, showAll: true };
-    // Show all: zsh %2's input lifts gp above main, so it heads the rail.
+    // Show all: zsh %2 has the newest input, so it heads the rail.
     expect(fallbackTmuxPaneSelection(entries, view)).toBe("%3");
     expect(fallbackTmuxPaneSelection(entries, allView)).toBe("%2");
-    expect(nextTmuxRailPaneAfter(rail(entries, "%3", allView), "%3", without("%3"), allView)).toBe("%4");
-    expect(nextTmuxRailPaneAfter(rail(entries, "%4", allView), "%4", without("%4"), allView)).toBe("%3");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%3", allView), "%3", without("%3"), allView)).toBe("%1");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%4", allView), "%4", without("%4"), allView)).toBe("%1");
   });
 
   it("never lands in _hidden or another _ session, even when the owner expanded it", () => {
@@ -327,16 +350,16 @@ describe("the pane after a close, snooze or vanished pane", () => {
     expect(fallbackTmuxPaneSelection(onlyHidden.slice(0, 2), expanded)).toBe("");
   });
 
-  it("skips collapsed groups and honours pins", () => {
+  it("ignores collapse choices for ordinary sessions and honours pins", () => {
     const collapsed: TmuxRailView = { ...view, preferences: [["main", true]] };
-    expect(nextTmuxRailPaneAfter(rail(entries, "%1", view), "%1", without("%1"), collapsed)).toBe("");
+    expect(nextTmuxRailPaneAfter(rail(entries, "%1", view), "%1", without("%1"), collapsed)).toBe("%4");
     const pinned = { ...view, pinnedNames: ["%4"] };
     expect(nextTmuxRailPaneAfter(rail(entries, "%3", pinned), "%3", without("%3"), pinned)).toBe("%1");
     expect(fallbackTmuxPaneSelection(without("%3"), pinned)).toBe("%4");
   });
 
   it("moves on when a refresh drops the selected pane, and only then", () => {
-    expect(tmuxSelectionAfterListChange(entries, without("%3"), "%3", view)).toBe("%4");
+    expect(tmuxSelectionAfterListChange(entries, without("%3"), "%3", view)).toBe("%1");
     expect(tmuxSelectionAfterListChange(entries, entries, "%3", view)).toBeNull();
     // A deep-linked pane the previous list never had keeps its selection.
     expect(tmuxSelectionAfterListChange(without("%7"), without("%7"), "%7", view)).toBeNull();
@@ -408,8 +431,9 @@ describe("initial pane selection", () => {
 
   it("selects nothing when the rail shows nothing", () => {
     expect(initialTmuxPaneSelection([entries[0]!, entries[2]!], null, view)).toBe("");
-    expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("");
     expect(initialTmuxPaneSelection([], "%3", view)).toBe("");
+    // Ordinary sessions can no longer be collapsed away, so the flat list still has a row.
+    expect(initialTmuxPaneSelection(entries, "%30", { ...view, preferences: [["gp", true], ["main", true]] })).toBe("%3");
   });
 });
 
@@ -432,12 +456,12 @@ describe("number-key rail shortcuts", () => {
     expect(tmuxRailPaneForDigit(agents, [], [], 5)).toBe("");
   });
 
-  it("counts pinned rows first and follows the owner's expanded and collapsed groups", () => {
+  it("counts pinned rows first and follows the owner's expanded and collapsed _ groups", () => {
     expect(tmuxRailPaneForDigit(agents, ["%5"], [], 1)).toBe("%5");
     expect(tmuxRailPaneForDigit(agents, ["%5"], [], 2)).toBe("%1");
-    expect(tmuxRailShortcutPanes(agents, [], [["_hidden", false], ["main", true]])).toEqual(["%4", "%3", "%5"]);
-    // A pinned pane from a collapsed group stays reachable.
-    expect(tmuxRailShortcutPanes(agents, ["%2"], [["main", true]])).toEqual(["%2", "%3", "%5"]);
+    expect(tmuxRailShortcutPanes(agents, [], [["_hidden", false], ["main", true]])).toEqual(["%1", "%2", "%3", "%5", "%4"]);
+    // A pinned pane from a collapsed _ group stays reachable.
+    expect(tmuxRailShortcutPanes(agents, ["%4"], [])).toEqual(["%4", "%1", "%2", "%3", "%5"]);
   });
 
   it("numbers only the first nine rows and ignores digits outside 1-9", () => {

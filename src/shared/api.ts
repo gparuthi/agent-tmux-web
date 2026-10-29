@@ -41,6 +41,8 @@ export type TmuxSessionDto = {
   activityAtMs?: number;
   // Owner's last keystroke into this pane: atw sends or a real terminal client (not pane output).
   lastInputAtMs?: number;
+  // First line of the agent's newest reply (Claude Code panes, from its transcript).
+  lastSaid?: string;
   currentCommand?: string;
   // Agent CLI in the pane, from its process tree (local panes) or pane_current_command.
   agent?: string;

@@ -32,7 +32,7 @@ function renderList(zenHiddenCount: number, onExitZen = vi.fn()) {
       zenHiddenCount={zenHiddenCount}
       onExitZen={onExitZen}
       onSelect={vi.fn()}
-      onTogglePin={vi.fn()}
+     
       onToggleGroup={vi.fn()}
     />
   );

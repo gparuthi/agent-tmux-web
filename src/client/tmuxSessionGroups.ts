@@ -18,7 +18,7 @@ export type TmuxPaneViews = {
 export type TmuxSessionGroupPreferences = Array<[string, boolean]>;
 
 export type TmuxSessionGroup = {
-  // null holds legacy rows (and demo rows) that carry no tmux session name.
+  // null is the flat, headerless list of every pane outside a "_" session.
   session: string | null;
   panes: TmuxSessionDto[];
 };
@@ -40,7 +40,10 @@ export function filterTmuxAgentPanes(entries: TmuxSessionDto[], showAll: boolean
   return showAll ? entries : entries.filter((entry) => entry.name === selected || tmuxEntryAgent(entry) !== null);
 }
 
-function lastInputAtMs(panes: TmuxSessionDto[]): number {
+const isUnderscoreTmuxSession = (entry: TmuxSessionDto) => (entry.session ?? "").startsWith("_");
+
+// A session's last owner input is its newest pane's; 0 when no pane has one.
+export function tmuxGroupLastInputAtMs(panes: TmuxSessionDto[]): number {
   return Math.max(0, ...panes.map((pane) => pane.lastInputAtMs ?? 0));
 }
 
@@ -49,30 +52,39 @@ function byLastInput<T>(items: T[], inputAtMs: (item: T) => number): T[] {
   return [...items].sort((left, right) => inputAtMs(right) - inputAtMs(left));
 }
 
-// Pinned panes keep server order and leave their group; groups and their panes sort by last owner input.
+// One flat list, newest owner input first and undated panes last in server order; pinned panes float
+// above it. Only "_" sessions (_hidden, where snoozed windows park) keep a collapsible group, after it.
 export function groupTmuxPanes(entries: TmuxSessionDto[], pinnedNames: string[]): GroupedTmuxPanes {
   const pinnedSet = new Set(pinnedNames);
   const pinned: TmuxSessionDto[] = [];
-  const groups: TmuxSessionGroup[] = [];
-  const bySession = new Map<string | null, TmuxSessionGroup>();
+  const flat: TmuxSessionDto[] = [];
+  const parked: TmuxSessionGroup[] = [];
+  const bySession = new Map<string, TmuxSessionGroup>();
   for (const entry of entries) {
-    const session = entry.session ?? null;
-    let group = bySession.get(session);
-    if (!group) {
-      group = { session, panes: [] };
-      bySession.set(session, group);
-      groups.push(group);
-    }
     if (pinnedSet.has(entry.name)) {
       pinned.push(entry);
-    } else {
+    } else if (isUnderscoreTmuxSession(entry)) {
+      const session = entry.session ?? "";
+      let group = bySession.get(session);
+      if (!group) {
+        group = { session, panes: [] };
+        bySession.set(session, group);
+        parked.push(group);
+      }
       group.panes.push(entry);
+    } else {
+      flat.push(entry);
     }
   }
-  const ordered = groups
-    .filter((group) => group.panes.length > 0)
-    .map((group) => ({ ...group, panes: byLastInput(group.panes, (pane) => pane.lastInputAtMs ?? 0) }));
-  return { pinned, groups: byLastInput(ordered, (group) => lastInputAtMs(group.panes)) };
+  const byPaneInput = (panes: TmuxSessionDto[]) => byLastInput(panes, (pane) => pane.lastInputAtMs ?? 0);
+  const groups = parked.map((group) => ({ ...group, panes: byPaneInput(group.panes) }));
+  return {
+    pinned: byPaneInput(pinned),
+    groups: [
+      ...(flat.length > 0 ? [{ session: null, panes: byPaneInput(flat) }] : []),
+      ...byLastInput(groups, (group) => tmuxGroupLastInputAtMs(group.panes))
+    ]
+  };
 }
 
 // Panes in the order the rail shows them: pinned first, then the panes of expanded groups.
@@ -120,8 +132,6 @@ export type TmuxRailView = {
   preferences: TmuxSessionGroupPreferences;
   showAll: boolean;
 };
-
-const isUnderscoreTmuxSession = (entry: TmuxSessionDto) => (entry.session ?? "").startsWith("_");
 
 // The rows a selection may fall back to: the rail's own rows in display order, minus "_" sessions
 // (_hidden) and snoozed panes, whether or not the owner expanded them.
@@ -184,13 +194,6 @@ export function aggregateTmuxSessionStatus(panes: TmuxSessionDto[]): TmuxSession
     (best, status) => !best || STATUS_ATTENTION_RANK[status.kind] > STATUS_ATTENTION_RANK[best.kind] ? status : best,
     null
   ) ?? UNKNOWN_STATUS;
-}
-
-// Inside a group the "session:" prefix of the pane label is redundant.
-export function tmuxPaneGroupDetail(entry: TmuxSessionDto): string {
-  const detail = entry.label ?? entry.name;
-  const prefix = entry.session ? `${entry.session}:` : "";
-  return prefix && detail.startsWith(prefix) ? detail.slice(prefix.length) : detail;
 }
 
 export function defaultTmuxSessionGroupCollapsed(session: string): boolean {

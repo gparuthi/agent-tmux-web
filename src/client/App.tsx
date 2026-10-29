@@ -2951,9 +2951,9 @@ export function App() {
               pinnedNames={pinnedTmuxSessionNames}
               selected={selectedTmux}
               onSelect={selectTmuxSession}
-              onTogglePin={toggleTmuxSessionPin}
               onToggleGroup={setTmuxSessionGroupCollapsedPreference}
               zenHiddenCount={zenMode ? zenHiddenCount : 0}
+              showState={!zenMode}
               onExitZen={() => updateZenMode(false)}
               onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch((wakeError: unknown) => setTmuxToast({ text: readApiErrorMessage(wakeError), error: true })) : undefined}
             />

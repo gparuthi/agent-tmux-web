@@ -549,6 +549,7 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
   // Local panes only: list-clients and Claude's session files describe this host's tmux server.
   const localPanes = sessions.filter((session) => session.name === session.paneId);
   const promptTimes = claudePromptTimes.get(localPanes.map((session) => ({ paneId: session.name, panePid: session.panePid })));
+  const saidByPane = claudePromptTimes.said();
   return Promise.all(sessions.map(async (session) => {
     const {
       clientCount,
@@ -572,16 +573,19 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
     );
     const lastInputAtMs = latestTmuxInputAtMs(
       storedTmuxInputAtMs(tmuxLastInput.get(session.name), session.createdAtMs),
-      local ? clientActivity.get(session.name) : undefined,
+      // A client idle since before the session existed never typed into it.
+      local ? storedTmuxInputAtMs(clientActivity.get(session.name), session.createdAtMs) : undefined,
       local ? promptTimes.get(session.name) : undefined
     );
     const agent = paneAgents.get(session.name);
+    const lastSaid = local ? saidByPane.get(session.name) : undefined;
     const queued = tmuxSendQueue.list(session.name).map(toTmuxQueuedMessageDto);
     return {
       ...sessionData,
       ...(agent ? { agent, label: buildTmuxPaneAgentLabel(session, agent) } : {}),
       ...(queued.length > 0 ? { queued } : {}),
       ...(lastInputAtMs ? { lastInputAtMs } : {}),
+      ...(lastSaid ? { lastSaid } : {}),
       // Raw browsers attach through grouped sessions, so add other browsers' raw views explicitly.
       viewerCount: Math.max(0, clientCount + totalRawTerminalClientCount(session.name) - rawTerminalClientCount(excludedBrowserClientId, session.name)),
       status

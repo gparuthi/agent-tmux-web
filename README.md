@@ -220,6 +220,16 @@ Status dots:
 The terminal output starts directly below the toolbar. Session health remains
 visible through the sidebar status dots.
 
+The session list is one flat list, most recent prompt first; panes never
+prompted follow in tmux order. Pinned panes (toolbar pin) sit above it, and `_`
+sessions such as `_hidden` stay in collapsed groups below it. Each row shows its
+title, with the tmux target, last prompt, state and the agent's last reply
+under it: `main:5 · 3h ago · idle · Pushed the fix`. Zen mode keeps only the
+target and time. The time is the newest of atw's own sends, a real tmux
+client's last keystroke, and Claude Code's last typed prompt; the reply is the
+first line of Claude Code's newest text, read from the transcript tail atw
+already caches (other agents show the state only).
+
 TTY captures up to 5,000 rows of tmux history for normal shell panes. Sessions
 created in the app are configured with at least that much history; recreate
 older sessions to raise their pane limit because tmux cannot restore rows it

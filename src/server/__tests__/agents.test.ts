@@ -282,6 +282,21 @@ describe("agent directory suggestions", () => {
       { path: "/h/b", label: "~/b", source: "repo" }
     ]);
   });
+
+  it("never offers the home directory itself, so it takes no slot from a project", () => {
+    const merged = mergeAgentDirectories([
+      { path: "/h", source: "pane", timestampMs: 9 },
+      { path: "/h/", source: "pane", timestampMs: 8 },
+      { path: "/h/a", source: "repo", timestampMs: 5 },
+      { path: "/h/b", source: "pane", timestampMs: 3 },
+      { path: "/other", source: "pane", timestampMs: 1 }
+    ], "/h", 2);
+    expect(merged).toEqual([
+      { path: "/h/a", label: "~/a", source: "repo" },
+      { path: "/h/b", label: "~/b", source: "pane" }
+    ]);
+    expect(mergeAgentDirectories([{ path: "/h", source: "pane", timestampMs: 1 }], "/h")).toEqual([]);
+  });
 });
 
 const tmuxAvailable = spawnSync("tmux", ["-V"]).status === 0;

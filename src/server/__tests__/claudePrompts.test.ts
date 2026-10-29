@@ -8,10 +8,20 @@ import {
   ClaudePromptTimes,
   claudeProjectDirName,
   isLiveClaudePane,
+  lastAssistantText,
   lastHumanPromptAtMs,
   parseClaudeSessionFile,
-  parseProcessParents
+  parseProcessParents,
+  summarizeClaudeText
 } from "../claudePrompts.js";
+
+const assistantLine = (content: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({
+  type: "assistant",
+  timestamp: "2026-10-04T17:40:00.000Z",
+  isSidechain: false,
+  message: { role: "assistant", content },
+  ...extra
+});
 
 const userLine = (timestamp: string, origin: string | null, content: unknown = "hi") => JSON.stringify({
   type: "user",
@@ -46,6 +56,29 @@ describe("Claude prompt source", () => {
     expect(lastHumanPromptAtMs(userLine("2026-10-04T17:35:00.000Z", "task-notification"))).toBeUndefined();
   });
 
+  it("keeps the agent's newest main-thread text, skipping thinking, tool calls, subagents and cut lines", () => {
+    const tail = [
+      "t\",\"text\":\"cut\"}]}}",
+      assistantLine([{ type: "text", text: "Earlier reply." }]),
+      assistantLine([{ type: "thinking", thinking: "hmm" }, { type: "text", text: "\n## Shipped it\nmore detail" }]),
+      userLine("2026-10-04T17:41:00.000Z", "human"),
+      assistantLine([{ type: "thinking", thinking: "text" }]),
+      assistantLine([{ type: "tool_use", name: "Bash", input: { command: "text" } }]),
+      assistantLine([{ type: "text", text: "From a subagent" }], { isSidechain: true }),
+      ""
+    ].join("\n");
+    expect(lastAssistantText(tail)).toBe("Shipped it");
+    expect(lastAssistantText(userLine("2026-10-04T17:41:00.000Z", "human"))).toBeUndefined();
+    expect(lastAssistantText(assistantLine([{ type: "text", text: "  \n " }]))).toBeUndefined();
+  });
+
+  it("summarizes text to its first line, without markdown bullets, capped with an ellipsis", () => {
+    expect(summarizeClaudeText("- **Done:** pushed   `abc123` to main\nsecond")).toBe("Done: pushed abc123 to main");
+    expect(summarizeClaudeText("\n\n> quoted")).toBe("quoted");
+    expect(summarizeClaudeText("x".repeat(200), 10)).toBe(`${"x".repeat(9)}…`);
+    expect(summarizeClaudeText("")).toBe("");
+  });
+
   it("trusts a session file only while its process lives in that pane", () => {
     const parents = parseProcessParents("  13222  1559\n  1559 1\n  900 13222\n");
     const session = { pid: 13222, sessionId: "abc", cwd: "/x", paneId: "%12" };
@@ -72,7 +105,7 @@ describe("ClaudePromptTimes", () => {
     await mkdir(path.join(dir, "projects", claudeProjectDirName(cwd)), { recursive: true });
     await writeFile(path.join(dir, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "live", cwd, tmux: "main:@1.%7" }));
     await writeFile(path.join(dir, "sessions", "999999.json"), JSON.stringify({ pid: 999999, sessionId: "dead", cwd, tmux: "main:@1.%8" }));
-    await writeFile(path.join(dir, "projects", claudeProjectDirName(cwd), "live.jsonl"), `${userLine("2026-10-04T17:30:00.000Z", "human")}\n`);
+    await writeFile(path.join(dir, "projects", claudeProjectDirName(cwd), "live.jsonl"), `${userLine("2026-10-04T17:30:00.000Z", "human")}\n${assistantLine([{ type: "text", text: "All green." }])}\n`);
     await writeFile(path.join(dir, "projects", claudeProjectDirName(cwd), "dead.jsonl"), `${userLine("2026-10-04T17:31:00.000Z", "human")}\n`);
 
     const times = new ClaudePromptTimes(dir);
@@ -80,6 +113,7 @@ describe("ClaudePromptTimes", () => {
     expect(times.get(panes).size).toBe(0);
     await times.refresh(panes);
     expect([...times.get(panes)]).toEqual([["%7", Date.parse("2026-10-04T17:30:00.000Z")]]);
+    expect([...times.said()]).toEqual([["%7", "All green."]]);
   });
 
   it("returns nothing when there is no Claude config", async () => {

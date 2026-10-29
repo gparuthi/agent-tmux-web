@@ -8,6 +8,9 @@ uploads, machine-specific service edits, or private signing material.
 
 ## Unreleased
 
+- The session list is flat and sorted by most recent prompt instead of grouped by tmux session; each row shows its title with `session:window · 3h ago · state · last reply` under it (zen mode keeps just the target and time; the reply is Claude Code's newest text line), and the per-row pin button and command/path detail are gone (pin from the toolbar; the detail stays in the row tooltip). Only `_` sessions such as `_hidden` keep a collapsible group, whose collapsed header shows its newest prompt.
+- A terminal client idle since before a session existed no longer counts as input to it.
+- The New agent sheet no longer offers the home directory itself; any path can still be typed.
 - Desktop TTY views size the tmux window to the browser too, not only phones; a retake from the browser in use wins over another browser's lease.
 - The "Window is wider than this screen" hint is a button: tapping it sizes the tmux window back to the phone after a desktop terminal grew it.
 - A mouse click on the Agent Tmux title opens the title menu (feedback, reload); right-click and the phone long press still work.
