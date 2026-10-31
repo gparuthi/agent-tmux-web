@@ -53,48 +53,20 @@ export function processArgsAgent(args: string): string | null {
   return script ? tmuxPaneAgent(script.replace(SCRIPT_EXTENSION_PATTERN, "")) : null;
 }
 
-// Breadth-first, so the match nearest the pane shell wins over anything it spawned.
-function findInProcessTree<T>(table: ProcessTable, rootPid: number, pick: (args: string) => T | null, maxDepth = MAX_PANE_AGENT_DEPTH): T | null {
+// Breadth-first, so the agent nearest the pane shell wins over anything it spawned.
+export function findProcessTreeAgent(table: ProcessTable, rootPid: number, maxDepth = MAX_PANE_AGENT_DEPTH): string | null {
   const root = table.byPid.get(rootPid);
   let level: ProcessEntry[] = root ? [root] : [];
   for (let depth = 0; depth <= maxDepth && level.length > 0; depth += 1) {
     for (const entry of level) {
-      const found = pick(entry.args);
-      if (found !== null) {
-        return found;
+      const agent = processArgsAgent(entry.args);
+      if (agent) {
+        return agent;
       }
     }
     level = level.flatMap((entry) => table.children.get(entry.pid) ?? []);
   }
   return null;
-}
-
-export function findProcessTreeAgent(table: ProcessTable, rootPid: number, maxDepth = MAX_PANE_AGENT_DEPTH): string | null {
-  return findInProcessTree(table, rootPid, processArgsAgent, maxDepth);
-}
-
-// Only `codex resume <id>` names its session on the command line; a plain `codex` start does not.
-export function codexResumeSessionId(args: string): string | null {
-  return args.match(/\bcodex\b.*?\bresume\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\b/i)?.[1] ?? null;
-}
-
-// Codex session ids for local Codex panes started with `codex resume <id>`.
-export function detectCodexPaneSessions(panes: PaneAgentInput[], agents: Map<string, string>, table: ProcessTable | null): Map<string, string> {
-  const sessions = new Map<string, string>();
-  for (const pane of panes) {
-    const sessionId = table && pane.panePid && pane.name === pane.paneId && agents.get(pane.name) === "codex"
-      ? findInProcessTree(table, pane.panePid, codexResumeSessionId)
-      : null;
-    if (sessionId) {
-      sessions.set(pane.name, sessionId);
-    }
-  }
-  return sessions;
-}
-
-export async function readCodexPaneSessions(panes: PaneAgentInput[], agents: Map<string, string>): Promise<Map<string, string>> {
-  const needsTable = [...agents.values()].includes("codex");
-  return detectCodexPaneSessions(panes, agents, needsTable ? await readCachedProcessTable() : null);
 }
 
 export async function readProcessTable(): Promise<ProcessTable> {

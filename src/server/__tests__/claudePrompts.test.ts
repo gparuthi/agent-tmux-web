@@ -147,8 +147,10 @@ describe("ClaudePromptTimes", () => {
 
     const times = new ClaudePromptTimes(dir);
     const panes = [{ paneId: "%7", panePid: process.pid }, { paneId: "%8", panePid: 999999 }];
+    expect(times.hasScanned()).toBe(false);
     expect(times.get(panes).size).toBe(0);
     await times.refresh(panes);
+    expect(times.hasScanned()).toBe(true);
     expect([...times.get(panes)]).toEqual([["%7", Date.parse("2026-10-04T17:30:00.000Z")]]);
     expect([...times.said()]).toEqual([["%7", "All green."]]);
     // The dead session's pane is not a live Claude pane.

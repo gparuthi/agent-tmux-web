@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  codexResumeSessionId,
-  detectCodexPaneSessions,
   detectTmuxPaneAgents,
   findProcessTreeAgent,
   parseProcessTable,
@@ -42,9 +40,6 @@ const PS_FIXTURE = [
   " 7001  1559 -zsh",
   " 7002  7001 /opt/homebrew/bin/hax --provider=codex",
   " 7003  7002 /bin/bash -c sleep 8; ls",
-  // codex reopened by atw from ctx's resume line, with a full session id.
-  " 8001  1559 /bin/zsh -lic cd '/Users/me/work/app' && codex resume 019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b; exec /bin/zsh -l",
-  " 8002  8001 node /opt/homebrew/bin/codex resume 019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b",
   ""
 ].join("\n");
 
@@ -115,27 +110,6 @@ describe("pane agents from the process tree", () => {
     ];
     expect(detectTmuxPaneAgents(panes, table)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"], ["dk--box--%7", "hax"]]));
     expect(detectTmuxPaneAgents(panes, null)).toEqual(new Map([["dk--box--%4", "claude"], ["%5", "pi"], ["dk--box--%7", "hax"]]));
-  });
-});
-
-describe("codex session ids from the process tree", () => {
-  it("reads a full id after resume and nothing from a plain or abbreviated start", () => {
-    expect(codexResumeSessionId("node /opt/homebrew/bin/codex resume 019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b")).toBe("019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b");
-    expect(codexResumeSessionId("node /opt/homebrew/bin/codex resume 01a104f8")).toBeNull();
-    expect(codexResumeSessionId("node /opt/homebrew/bin/codex")).toBeNull();
-    expect(codexResumeSessionId("claude -r 019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b")).toBeNull();
-  });
-
-  it("maps only local codex panes started with a full resume id", () => {
-    const panes = [
-      { name: "%8", paneId: "%8", panePid: 8001 },
-      { name: "%27", paneId: "%27", panePid: 22974 },
-      { name: "dk--box--%8", paneId: "%8", panePid: 8001 },
-      { name: "%2", paneId: "%2", panePid: 1786 }
-    ];
-    const agents = new Map([["%8", "codex"], ["%27", "codex"], ["dk--box--%8", "codex"], ["%2", "claude"]]);
-    expect(detectCodexPaneSessions(panes, agents, table)).toEqual(new Map([["%8", "019a2b3c-4d5e-7f60-8a9b-0c1d2e3f4a5b"]]));
-    expect(detectCodexPaneSessions(panes, agents, null)).toEqual(new Map());
   });
 });
 

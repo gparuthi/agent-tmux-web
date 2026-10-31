@@ -206,6 +206,7 @@ export class ClaudePromptTimes {
   private latestSaid = new Map<string, string>();
   private live = new Set<string>();
   private latestSessions = new Map<string, ClaudePaneSession>();
+  private scanned = false;
   private refreshedAtMs = 0;
   private refreshing: Promise<void> | null = null;
   private readonly transcriptCache = new Map<string, TranscriptSummary & { size: number; mtimeMs: number }>();
@@ -241,6 +242,11 @@ export class ClaudePromptTimes {
     return this.latestSessions;
   }
 
+  // Whether a refresh has completed, so an empty sessions() means no live Claude pane rather than not looked yet.
+  hasScanned(): boolean {
+    return this.scanned;
+  }
+
   async refresh(panes: ClaudePaneProcess[]): Promise<void> {
     const next = new Map<string, number>();
     const nextSaid = new Map<string, string>();
@@ -263,6 +269,7 @@ export class ClaudePromptTimes {
     this.latestSaid = nextSaid;
     this.live = nextLive;
     this.latestSessions = nextSessions;
+    this.scanned = true;
     for (const transcriptPath of this.transcriptCache.keys()) {
       if (!visited.has(transcriptPath)) {
         this.transcriptCache.delete(transcriptPath);

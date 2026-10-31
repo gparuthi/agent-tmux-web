@@ -13,11 +13,6 @@ type ClosedSessionsSectionProps = {
   nowMs?: number;
 };
 
-// "closed 5m ago", "closed just now".
-export function formatClosedAgo(closedAtMs: number, nowMs: number): string {
-  return `closed ${formatTmuxLastPrompt(closedAtMs, nowMs) || "just now"}`;
-}
-
 export function ClosedSessionsSection({ entries, onReopen, initialExpanded = false, nowMs = Date.now() }: ClosedSessionsSectionProps) {
   const [expanded, setExpanded] = useState(initialExpanded);
   const [busy, setBusy] = useState<{ sessionId: string; mode: ReopenClosedSessionMode } | null>(null);
@@ -35,17 +30,18 @@ export function ClosedSessionsSection({ entries, onReopen, initialExpanded = fal
   }
 
   function renderEntry(entry: ClosedSessionDto) {
-    const closed = formatClosedAgo(entry.closedAtMs, nowMs);
+    const ago = formatTmuxLastPrompt(entry.lastPromptAtMs, nowMs);
     const working = (mode: ReopenClosedSessionMode) => busy?.sessionId === entry.sessionId && busy.mode === mode;
     return (
       <div className="tmux-session-row tmux-closed-session-row" key={entry.sessionId}>
-        <span className="tmux-closed-session-title" title={`${entry.title} (${entry.agent} · ${entry.cwd}), ${closed}`}>
+        <span className="tmux-closed-session-title" title={`${entry.title} (${entry.cwd}), last prompt ${ago}: ${entry.lastPrompt}`}>
           <span className="tmux-session-name">{entry.title}</span>
           <span className="tmux-session-sub">
             <span className="tmux-session-sub-session">{entry.cwdLabel}</span>
             <span aria-hidden="true" className="tmux-session-sub-separator">·</span>
-            <span className="tmux-session-last-prompt">{closed}</span>
+            <span className="tmux-session-last-prompt">{ago}</span>
           </span>
+          {entry.lastPrompt && <span className="tmux-session-sub tmux-closed-session-prompt">{entry.lastPrompt}</span>}
         </span>
         <span className="tmux-closed-session-actions">
           <button

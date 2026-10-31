@@ -10,29 +10,37 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ClosedSessionDto, ReopenClosedSessionResultDto } from "../../shared/api.js";
 import {
   buildCtxCmdArgs,
-  ClosedSessionTracker,
-  collectLiveAgentPanes,
+  buildCtxPromptsArgs,
+  closedSessionTitle,
   createClosedSessionsRouter,
+  CtxPromptsCache,
   HandoffCache,
   isAgentSessionId,
   MAX_CLOSED_SESSIONS,
-  parseClosedSessionsFile,
   parseCtxCommand,
+  parseCtxPrompts,
   probeCtxHandoff,
   readCtxCommand,
+  readCtxPrompts,
+  RecentlyClosedSessions,
+  REOPENED_GRACE_MS,
   resolveCtxBin,
-  type LiveAgentPane
+  selectRecentlyClosed,
+  type CtxPromptSession
 } from "../closedSessions.js";
-import type { TmuxSession } from "../tmux.js";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const T0 = Date.parse("2026-10-31T12:00:00Z");
 
-const live = (name: string, n: number, extra: Partial<LiveAgentPane> = {}): LiveAgentPane => ({
-  name,
-  agent: "claude",
+const prompted = (n: number, extra: Partial<CtxPromptSession> = {}): CtxPromptSession => ({
   sessionId: id(n),
-  cwd: "/Users/me/work/app",
-  title: `task ${n}`,
+  host: "host-a",
+  harness: "claude",
+  project: "/Users/me/work/app",
+  name: `task ${n}`,
+  prompt: `prompt ${n}`,
+  // Lower n is newer, as ctx lists them.
+  promptedAtMs: T0 - n * 60_000,
   ...extra
 });
 
@@ -48,114 +56,152 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
-describe("ClosedSessionTracker", () => {
-  it("records an agent pane once it disappears, and ignores panes it never saw with a session", () => {
-    let nowMs = 1000;
-    const onClosed = vi.fn();
-    const tracker = new ClosedSessionTracker({ filePath: null, now: () => nowMs, onClosed });
-    tracker.remember([live("%1", 1, { lastPromptAtMs: 900 }), live("%2", 2)]);
-    tracker.sweep([{ name: "%1" }, { name: "%2" }, { name: "%3" }]);
-    expect(tracker.list()).toEqual([]);
-
-    nowMs = 2000;
-    tracker.sweep([{ name: "%2" }]);
-    expect(tracker.list()).toEqual([{ sessionId: id(1), agent: "claude", cwd: "/Users/me/work/app", title: "task 1", closedAtMs: 2000, lastPromptAtMs: 900 }]);
-    expect(onClosed).toHaveBeenCalledTimes(1);
-    // A pane is recorded once, not on every later sweep.
-    tracker.sweep([{ name: "%2" }]);
-    expect(tracker.list()).toHaveLength(1);
+describe("ctx prompts", () => {
+  it("asks ctx for this host's sessions only, letting ctx resolve the host name", () => {
+    expect(buildCtxPromptsArgs()).toEqual(["prompts", "--json", "--host", "local", "--since", "7d", "-k", "60"]);
   });
 
-  it("treats a reused pane id with a newer creation time as the old pane closing", () => {
-    const tracker = new ClosedSessionTracker({ filePath: null, now: () => 5000 });
-    tracker.remember([live("%4", 4, { createdAtMs: 100 })]);
-    tracker.sweep([{ name: "%4", createdAtMs: 100 }]);
-    expect(tracker.list()).toEqual([]);
-    tracker.sweep([{ name: "%4", createdAtMs: 4000 }]);
-    expect(tracker.list().map((entry) => entry.sessionId)).toEqual([id(4)]);
+  it("parses sessions and drops malformed ones", () => {
+    const output = JSON.stringify({
+      count: 4,
+      sessions: [
+        { prompted_at: "2026-10-31T14:36:32.47Z", host: "host-a", harness: "claude", project: "/Users/me/work/app", session_id: id(1), name: "ATW", prompt: "hi", path: "/x.jsonl" },
+        { prompted_at: "2026-10-31T14:00:00Z", host: "host-a", harness: "codex", project: "/w", session_id: id(2), prompt: "codex" },
+        { prompted_at: "not a time", host: "host-a", harness: "claude", project: "/w", session_id: id(3) },
+        { prompted_at: "2026-10-31T14:00:00Z", harness: "claude", project: "/w", session_id: id(4) },
+        null
+      ]
+    });
+    expect(parseCtxPrompts(output)).toEqual([
+      { sessionId: id(1), host: "host-a", harness: "claude", project: "/Users/me/work/app", name: "ATW", prompt: "hi", promptedAtMs: Date.parse("2026-10-31T14:36:32.47Z") },
+      { sessionId: id(2), host: "host-a", harness: "codex", project: "/w", name: "", prompt: "codex", promptedAtMs: Date.parse("2026-10-31T14:00:00Z") }
+    ]);
+    expect(() => parseCtxPrompts("error: no index")).toThrow(/no JSON/);
+    expect(() => parseCtxPrompts("{}")).toThrow(/no sessions/);
   });
 
-  it("keeps one entry per session id, newest first, and drops it when the session is live again", () => {
-    let nowMs = 1000;
-    const tracker = new ClosedSessionTracker({ filePath: null, now: () => nowMs });
-    tracker.remember([live("%1", 1), live("%2", 2)]);
-    tracker.sweep([]);
-    nowMs = 2000;
-    // The same session resumed in another pane and closed again.
-    tracker.remember([live("%5", 1, { title: "renamed" })]);
-    expect(tracker.list().map((entry) => entry.sessionId)).toEqual([id(2)]);
-    tracker.sweep([]);
-    expect(tracker.list().map((entry) => [entry.sessionId, entry.title, entry.closedAtMs])).toEqual([[id(1), "renamed", 2000], [id(2), "task 2", 1000]]);
-  });
+  it("runs ctx with argv only, and lists nothing without ctx", async () => {
+    const dir = await makeTempDir();
+    const bin = path.join(dir, "ctx");
+    const argvFile = path.join(dir, "argv");
+    const session = { prompted_at: "2026-10-31T14:00:00Z", host: "host-a", harness: "claude", project: "/w", session_id: id(1), name: "n", prompt: "p" };
+    await writeFile(bin, [
+      "#!/bin/sh",
+      `printf '%s\\n' "$@" > '${argvFile}'`,
+      `echo '${JSON.stringify({ sessions: [session] })}'`
+    ].join("\n"));
+    await chmod(bin, 0o755);
 
-  it("caps the list at the newest entries", () => {
-    let nowMs = 0;
-    const tracker = new ClosedSessionTracker({ filePath: null, now: () => nowMs });
-    for (let n = 1; n <= MAX_CLOSED_SESSIONS + 5; n += 1) {
-      nowMs = n;
-      tracker.remember([live(`%${n}`, n)]);
-      tracker.sweep([]);
-    }
-    expect(tracker.list()).toHaveLength(MAX_CLOSED_SESSIONS);
-    expect(tracker.list()[0].sessionId).toBe(id(MAX_CLOSED_SESSIONS + 5));
-    expect(tracker.list().at(-1)?.sessionId).toBe(id(6));
-  });
+    expect((await readCtxPrompts(bin)).map((entry) => entry.sessionId)).toEqual([id(1)]);
+    expect((await readFile(argvFile, "utf8")).trimEnd().split("\n")).toEqual(buildCtxPromptsArgs());
+    expect(await readCtxPrompts(null)).toEqual([]);
 
-  it("persists the list and loads it back, without the live panes", async () => {
-    const filePath = path.join(await makeTempDir(), "state", "closed-sessions.json");
-    const tracker = new ClosedSessionTracker({ filePath, now: () => 3000, debounceMs: 60_000 });
-    tracker.remember([live("%1", 1), live("%2", 2)]);
-    tracker.sweep([{ name: "%2" }]);
-    await tracker.flush();
-    expect(JSON.parse(await readFile(filePath, "utf8"))).toEqual({ version: 1, entries: tracker.list() });
-
-    const restarted = new ClosedSessionTracker({ filePath, now: () => 4000 });
-    await restarted.load();
-    expect(restarted.list()).toEqual(tracker.list());
-    // Panes from before the restart are unknown, so their closures go unrecorded.
-    restarted.sweep([]);
-    expect(restarted.list()).toHaveLength(1);
-    restarted.remove(id(1));
-    expect(restarted.list()).toEqual([]);
-  });
-
-  it("drops malformed entries and unknown file versions", () => {
-    const good = { sessionId: id(1), agent: "codex", cwd: "/w", title: "t", closedAtMs: 5 };
-    expect(parseClosedSessionsFile(JSON.stringify({ version: 1, entries: [good, { ...good, sessionId: "../../etc" }, { ...good, closedAtMs: "x" }, null] }))).toEqual([good]);
-    expect(parseClosedSessionsFile(JSON.stringify({ version: 2, entries: [good] }))).toEqual([]);
-    expect(parseClosedSessionsFile("not json")).toEqual([]);
+    await writeFile(bin, "#!/bin/sh\necho 'error: index locked' >&2\nexit 1\n");
+    await expect(readCtxPrompts(bin)).rejects.toMatchObject({ statusCode: 502, message: "error: index locked" });
   });
 });
 
-describe("live agent panes", () => {
-  const pane = (name: string, extra: Partial<TmuxSession> = {}): TmuxSession => ({
-    name,
-    paneId: name.match(/%\d+$/)?.[0],
-    windows: 1,
-    created: "",
-    attached: false,
-    clientCount: 0,
-    ...extra
+describe("recently closed selection", () => {
+  it("keeps Claude sessions not live in a pane, newest prompt first, one per id", () => {
+    const sessions = [
+      prompted(3),
+      prompted(1),
+      prompted(2, { harness: "codex" }),
+      prompted(4),
+      prompted(5, { sessionId: "not-a-uuid" }),
+      // An older copy of session 3.
+      prompted(3, { promptedAtMs: T0 - 99 * 60_000, name: "old" })
+    ];
+    const closed = selectRecentlyClosed(sessions, new Set([id(4)]));
+    expect(closed.map((entry) => [entry.sessionId, entry.title])).toEqual([[id(1), "task 1"], [id(3), "task 3"]]);
+    expect(closed[0]).toEqual({ sessionId: id(1), agent: "claude", title: "task 1", cwd: "/Users/me/work/app", lastPrompt: "prompt 1", lastPromptAtMs: T0 - 60_000 });
   });
 
-  it("takes Claude ids from its session files and Codex ids from its resume argv, local panes only", () => {
-    const panes = [
-      pane("%1", { displayName: "fix auth", createdAtMs: 10 }),
-      pane("%2", { displayName: "codex work", currentPath: "/Users/me/work/api" }),
-      pane("%3", { displayName: "plain codex" }),
-      pane("dk--box--%4", { displayName: "remote" }),
-      pane("%5", { displayName: "shell" })
-    ];
-    const result = collectLiveAgentPanes(panes, {
-      agents: new Map([["%1", "claude"], ["%2", "codex"], ["%3", "codex"], ["dk--box--%4", "claude"]]),
-      claudeSessions: new Map([["%1", { sessionId: id(1), cwd: "/Users/me/work/app" }], ["dk--box--%4", { sessionId: id(4), cwd: "/x" }], ["%5", { sessionId: "not-a-uuid", cwd: "/x" }]]),
-      codexSessions: new Map([["%2", id(2)]]),
-      lastPromptAtMs: (entry) => (entry.name === "%1" ? 99 : undefined)
+  it("caps the list", () => {
+    const sessions = Array.from({ length: MAX_CLOSED_SESSIONS + 5 }, (_, index) => prompted(index + 1));
+    const closed = selectRecentlyClosed(sessions, new Set());
+    expect(closed).toHaveLength(MAX_CLOSED_SESSIONS);
+    expect(closed.at(-1)?.sessionId).toBe(id(MAX_CLOSED_SESSIONS));
+  });
+
+  it("titles unnamed sessions by a short form of the prompt and flattens the prompt to one line", () => {
+    expect(closedSessionTitle("  ATW  ", "x", id(1))).toBe("ATW");
+    expect(closedSessionTitle("", "fix the\n  login   bug", id(1))).toBe("fix the login bug");
+    const long = closedSessionTitle("", "word ".repeat(40), id(1));
+    expect(long.length).toBeLessThanOrEqual(60);
+    expect(long.endsWith("…")).toBe(true);
+    expect(closedSessionTitle("", "  ", id(1))).toBe("00000000");
+    const [entry] = selectRecentlyClosed([prompted(1, { name: "", prompt: "line one\nline two" })], new Set());
+    expect(entry).toMatchObject({ title: "line one line two", lastPrompt: "line one line two" });
+  });
+});
+
+describe("CtxPromptsCache", () => {
+  it("waits for the first read, then serves the cached list and refreshes it once when stale", async () => {
+    let nowMs = 0;
+    let n = 0;
+    const read = vi.fn(async () => [prompted((n += 1))]);
+    const cache = new CtxPromptsCache(read, () => nowMs, 1000);
+    expect((await cache.get()).map((entry) => entry.sessionId)).toEqual([id(1)]);
+    nowMs = 999;
+    await cache.get();
+    expect(read).toHaveBeenCalledTimes(1);
+
+    nowMs = 1000;
+    // Stale: answered from the cache while one background refresh runs.
+    const [first, second] = await Promise.all([cache.get(), cache.get()]);
+    expect(first.map((entry) => entry.sessionId)).toEqual([id(1)]);
+    expect(second).toBe(first);
+    expect(read).toHaveBeenCalledTimes(2);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect((await cache.get()).map((entry) => entry.sessionId)).toEqual([id(2)]);
+    expect(read).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares one read between concurrent first calls", async () => {
+    const read = vi.fn(async () => [prompted(1)]);
+    const cache = new CtxPromptsCache(read);
+    await Promise.all([cache.get(), cache.get(), cache.refresh()]);
+    expect(read).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the last list when a refresh fails and waits an interval before retrying", async () => {
+    let nowMs = 0;
+    const read = vi.fn(async () => [prompted(1)]);
+    const cache = new CtxPromptsCache(read, () => nowMs, 1000);
+    await cache.get();
+    read.mockRejectedValueOnce(new Error("ctx failed"));
+    nowMs = 1000;
+    expect((await cache.refresh()).map((entry) => entry.sessionId)).toEqual([id(1)]);
+    nowMs = 1500;
+    await cache.get();
+    expect(read).toHaveBeenCalledTimes(2);
+
+    const failing = new CtxPromptsCache(async () => {
+      throw new Error("ctx failed");
     });
-    expect(result).toEqual([
-      { name: "%1", createdAtMs: 10, agent: "claude", sessionId: id(1), cwd: "/Users/me/work/app", title: "fix auth", lastPromptAtMs: 99 },
-      { name: "%2", agent: "codex", sessionId: id(2), cwd: "/Users/me/work/api", title: "codex work" }
-    ]);
+    await expect(failing.get()).rejects.toThrow("ctx failed");
+  });
+});
+
+describe("RecentlyClosedSessions", () => {
+  it("lists nothing until the Claude session scan has run, and hides a reopened session for a grace period", async () => {
+    let nowMs = T0;
+    let live: Set<string> | null = null;
+    const closed = new RecentlyClosedSessions({
+      prompts: async () => [prompted(1), prompted(2), prompted(3)],
+      liveSessionIds: async () => live,
+      now: () => nowMs
+    });
+    expect(await closed.list()).toEqual([]);
+
+    live = new Set([id(2)]);
+    expect((await closed.list()).map((entry) => entry.sessionId)).toEqual([id(1), id(3)]);
+
+    closed.markReopened(id(1));
+    expect((await closed.list()).map((entry) => entry.sessionId)).toEqual([id(3)]);
+    nowMs += REOPENED_GRACE_MS;
+    expect((await closed.list()).map((entry) => entry.sessionId)).toEqual([id(1), id(3)]);
   });
 });
 
@@ -234,7 +280,7 @@ describe("ctx commands", () => {
 describe("closed sessions endpoints", () => {
   let server: http.Server;
   let baseUrl = "";
-  let tracker: ClosedSessionTracker;
+  let prompts: CtxPromptSession[];
   const readCommand = vi.fn(async (sessionId: string, mode: string) => `cd '/Users/me/work/app' && ${mode === "handoff" ? "claude 'Continue'" : `claude -r ${sessionId}`}`);
   const openWindow = vi.fn(async () => ({ pane: "%42", directory: "/Users/me/work/app", windowName: "task 1" }));
   const onOpened = vi.fn();
@@ -243,13 +289,11 @@ describe("closed sessions endpoints", () => {
     readCommand.mockClear();
     openWindow.mockClear();
     onOpened.mockClear();
-    tracker = new ClosedSessionTracker({ filePath: null, now: () => 1000 });
-    tracker.remember([live("%1", 1), live("%2", 2, { agent: "codex", cwd: "/Users/me/work/api" })]);
-    tracker.sweep([]);
+    prompts = [prompted(1), prompted(2, { project: "/Users/me/work/api", name: "" }), prompted(3)];
     const app = express();
     app.use(express.json());
     app.use(createClosedSessionsRouter({
-      tracker,
+      closed: new RecentlyClosedSessions({ prompts: async () => prompts, liveSessionIds: async () => new Set([id(3)]) }),
       handoffs: new HandoffCache(async (sessionId) => sessionId === id(1)),
       readCommand,
       openWindow,
@@ -282,12 +326,21 @@ describe("closed sessions endpoints", () => {
     const result = await request("GET", "/api/tmux/closed-sessions");
     expect(result.status).toBe(200);
     const data = result.json.data as ClosedSessionDto[];
-    // Both closed in one sweep; the later-recorded one lists first.
-    expect(data.map((entry) => [entry.sessionId, entry.agent, entry.handoff])).toEqual([[id(2), "codex", false], [id(1), "claude", true]]);
-    expect(data[1]).toMatchObject({ title: "task 1", cwd: "/Users/me/work/app", closedAtMs: 1000 });
+    // Session 3 is live in a pane.
+    expect(data.map((entry) => [entry.sessionId, entry.title, entry.handoff])).toEqual([[id(1), "task 1", true], [id(2), "prompt 2", false]]);
+    expect(data[0]).toEqual({
+      sessionId: id(1),
+      agent: "claude",
+      title: "task 1",
+      cwd: "/Users/me/work/app",
+      cwdLabel: "/…/work/app",
+      lastPrompt: "prompt 1",
+      lastPromptAtMs: T0 - 60_000,
+      handoff: true
+    });
   });
 
-  it("rejects bad ids, bad modes and sessions it did not see close, before running ctx", async () => {
+  it("rejects bad ids, bad modes and sessions not in the recently closed list, before running ctx", async () => {
     for (const sessionId of ["", "--fresh", `${id(1)} --fresh`, "x".repeat(36), 7]) {
       expect((await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId, mode: "resume" })).status, String(sessionId)).toBe(400);
     }
@@ -295,11 +348,13 @@ describe("closed sessions endpoints", () => {
       expect((await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId: id(1), mode })).status, String(mode)).toBe(400);
     }
     expect((await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId: id(9), mode: "resume" })).status).toBe(404);
+    // Live in a pane, so not closed.
+    expect((await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId: id(3), mode: "resume" })).status).toBe(404);
     expect(readCommand).not.toHaveBeenCalled();
     expect(openWindow).not.toHaveBeenCalled();
   });
 
-  it("opens ctx's line in a new window, removes the entry and returns the new pane", async () => {
+  it("opens ctx's line in a new window, hides the entry and returns the new pane", async () => {
     const result = await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId: id(1), mode: "handoff" });
     expect(result.status).toBe(200);
     const data = result.json.data as ReopenClosedSessionResultDto;
@@ -309,7 +364,7 @@ describe("closed sessions endpoints", () => {
     expect(data.pane).toBe("%42");
     expect(data.sessions.map((session) => session.name)).toEqual(["%42"]);
     expect(data.closed.map((entry) => entry.sessionId)).toEqual([id(2)]);
-    expect(tracker.find(id(1))).toBeUndefined();
+    expect(((await request("GET", "/api/tmux/closed-sessions")).json.data as ClosedSessionDto[]).map((entry) => entry.sessionId)).toEqual([id(2)]);
   });
 
   it("keeps the entry when ctx fails", async () => {
@@ -317,6 +372,6 @@ describe("closed sessions endpoints", () => {
     const result = await request("POST", "/api/tmux/closed-sessions/reopen", { sessionId: id(2), mode: "handoff" });
     expect(result).toEqual({ status: 502, json: { error: "no ctx handoff for codex:00000000" } });
     expect(openWindow).not.toHaveBeenCalled();
-    expect(tracker.find(id(2))).toBeDefined();
+    expect(((await request("GET", "/api/tmux/closed-sessions")).json.data as ClosedSessionDto[]).map((entry) => entry.sessionId)).toEqual([id(1), id(2)]);
   });
 });

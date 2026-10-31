@@ -872,7 +872,7 @@ textarea:focus {
   opacity: 0.45;
 }
 
-/* Recently closed: title and "cwd · closed 5m ago" on the left, Resume and Handoff on the right. */
+/* Recently closed: title, "cwd · 5m ago" and the last prompt on the left, Resume and Handoff on the right. */
 .tmux-closed-session-row {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 6px;
@@ -884,6 +884,16 @@ textarea:focus {
   flex-direction: column;
   min-width: 0;
   font-size: 12px;
+}
+
+/* The last prompt stays one line everywhere, unlike the two-line desktop sub-line. */
+.tmux-session-sub.tmux-closed-session-prompt {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  -webkit-line-clamp: none;
+  line-clamp: none;
 }
 
 .tmux-closed-session-actions {
@@ -898,7 +908,7 @@ textarea:focus {
   }
 }
 
-/* The 260px desktop rail: title and "cwd · closed" get the full width, the buttons sit under them. */
+/* The 260px desktop rail: title, "cwd · time" and prompt get the full width, the buttons sit under them. */
 @media (min-width: 1121px) {
   .tmux-closed-session-row {
     grid-template-columns: minmax(0, 1fr);

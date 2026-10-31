@@ -49,10 +49,12 @@ tabs without killing the work.
   choose where and what to start). Every note, and whether it landed, is
   appended to `~/.local/state/atw/feedback.jsonl`
   (`AGENT_TMUX_WEB_FEEDBACK_LOG_FILE` moves it).
-- A collapsed "Recently closed" section under the session list: Claude Code
-  and Codex sessions whose pane closed while atw ran, each with Resume and,
-  when ctx has a checkpoint, Handoff (a fresh agent from it), via
-  `ctx cmd <id> [--fresh]` in a new window (`ATW_CTX_BIN` overrides ctx).
+- A collapsed "Recently closed" section under the session list: this host's
+  Claude Code sessions from the last 7 days (`ctx prompts --host local`) that
+  no tmux pane runs now, newest prompt first, with name, project, last prompt
+  and its time. Each has Resume and, when ctx has a checkpoint, Handoff (a
+  fresh agent from it), via `ctx cmd <id> [--fresh]` in a new window
+  (`ATW_CTX_BIN` overrides ctx).
 - Built-in launchers for OpenCode, Codex, Claude Code, Gemini CLI, GitHub
   Copilot, Cursor Agent, Qwen Code, Cline, Aider, goose, and Amp.
 - Alphabetical launcher selection with per-device pins for favorites and a `+`

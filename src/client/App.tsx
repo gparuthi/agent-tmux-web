@@ -247,6 +247,8 @@ const RAW_TERMINAL_INPUT_CHUNK_SIZE = 16_000;
 const TMUX_NOTIFICATION_STORAGE_KEY = "agent-tmux-web.notify";
 const TMUX_SESSION_STATUS_POLL_INTERVAL_MS = 3_000;
 const TMUX_RENAME_REFRESH_DELAY_MS = 1_500;
+// Matches the server's ctx prompts cache.
+const CLOSED_SESSIONS_REFRESH_MS = 30_000;
 const TMUX_SCROLL_ANCHOR_SELECTOR = "[data-tmux-scroll-anchor]";
 const BROWSER_CLIENT_ID = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const demoMode = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("demo");
@@ -946,20 +948,23 @@ export function App() {
     }
   }, [tmuxSessions]);
 
-  // A pane leaving the list may be a closure the server just recorded.
+  // Reloaded when panes come or go, and on an interval since the server learns of a closed pane a few seconds later.
   const tmuxPaneNamesKey = tmuxSessions.map((session) => session.name).join(" ");
   useEffect(() => {
     if (demoMode) {
       return;
     }
     let cancelled = false;
-    loadClosedSessions().then((entries) => {
+    const load = () => loadClosedSessions().then((entries) => {
       if (!cancelled) {
         setClosedSessions(entries);
       }
     }, () => undefined);
+    void load();
+    const timer = window.setInterval(() => void load(), CLOSED_SESSIONS_REFRESH_MS);
     return () => {
       cancelled = true;
+      window.clearInterval(timer);
     };
   }, [tmuxPaneNamesKey]);
 

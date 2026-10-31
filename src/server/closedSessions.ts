@@ -1,47 +1,50 @@
 import { execFile } from "node:child_process";
 import { constants as fsConstants } from "node:fs";
-import { access, mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import os from "node:os";
+import { access } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
 import { Router, type NextFunction, type Request, type Response } from "express";
 
 import type { ClosedSessionDto, ReopenClosedSessionMode, ReopenClosedSessionResultDto, TmuxSessionDto } from "../shared/api.js";
-import { shortenTmuxPanePath, TmuxRequestError, type TmuxSession } from "./tmux.js";
+import { shortenTmuxPanePath, TmuxRequestError } from "./tmux.js";
 
 const execFileAsync = promisify(execFile);
 
-export const DEFAULT_CLOSED_SESSIONS_FILE = path.join(os.homedir(), ".local", "state", "atw", "closed-sessions.json");
 export const MAX_CLOSED_SESSIONS = 30;
+// ctx prompts takes ~0.1-0.5s; the list is served from this cache and refreshed in the background.
+export const CTX_PROMPTS_CACHE_MS = 30_000;
+// A reopened session stays hidden this long, until the Claude session scan sees its new pane.
+export const REOPENED_GRACE_MS = 60_000;
 // A closed session's checkpoint rarely changes, so its handoff probe is reused this long.
 export const HANDOFF_CACHE_MS = 5 * 60_000;
 const HANDOFF_PROBE_CONCURRENCY = 4;
 // The autobuild wrapper may rebuild ctx on its first run after an edit.
 const CTX_TIMEOUT_MS = 120_000;
-const WRITE_DEBOUNCE_MS = 1000;
-const FILE_VERSION = 1;
+const CTX_PROMPTS_MAX_BUFFER_BYTES = 16 * 1024 * 1024;
+const MAX_TITLE_CHARS = 60;
+const MAX_PROMPT_CHARS = 300;
 // Claude Code and Codex both name sessions with UUIDs; nothing else reaches ctx's argv.
 const AGENT_SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type LiveAgentPane = {
-  // Local pane target, e.g. "%12".
-  name: string;
-  createdAtMs?: number;
-  agent: string;
+// One session from `ctx prompts --json`, newest owner prompt first.
+export type CtxPromptSession = {
   sessionId: string;
-  cwd: string;
-  title: string;
-  lastPromptAtMs?: number;
+  host: string;
+  harness: string;
+  project: string;
+  name: string;
+  prompt: string;
+  promptedAtMs: number;
 };
 
 export type ClosedSession = {
   sessionId: string;
   agent: string;
-  cwd: string;
   title: string;
-  closedAtMs: number;
-  lastPromptAtMs?: number;
+  cwd: string;
+  lastPrompt: string;
+  lastPromptAtMs: number;
 };
 
 export function isAgentSessionId(value: unknown): value is string {
@@ -56,183 +59,167 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function parseClosedSession(value: unknown): ClosedSession | null {
-  if (!isRecord(value)) {
-    return null;
-  }
-  const { sessionId, agent, cwd, title, closedAtMs, lastPromptAtMs } = value;
-  if (!isAgentSessionId(sessionId) || typeof agent !== "string" || !agent || typeof cwd !== "string" || typeof title !== "string"
-    || typeof closedAtMs !== "number" || !Number.isFinite(closedAtMs)) {
-    return null;
-  }
-  return {
-    sessionId,
-    agent,
-    cwd,
-    title,
-    closedAtMs,
-    ...(typeof lastPromptAtMs === "number" && Number.isFinite(lastPromptAtMs) ? { lastPromptAtMs } : {})
-  };
+// `--host local` lets ctx resolve this machine's name itself (TW_HOSTNAME, else scutil LocalHostName, aliased), which
+// need not match os.hostname(); it also skips the synced copies from other hosts.
+export function buildCtxPromptsArgs(): string[] {
+  return ["prompts", "--json", "--host", "local", "--since", "7d", "-k", "60"];
 }
 
-// Newest first, one entry per session id, at most `max`.
-export function pruneClosedSessions(entries: ClosedSession[], max = MAX_CLOSED_SESSIONS): ClosedSession[] {
-  const seen = new Set<string>();
-  return [...entries]
-    .sort((left, right) => right.closedAtMs - left.closedAtMs)
-    .filter((entry) => {
-      if (seen.has(entry.sessionId)) {
-        return false;
-      }
-      seen.add(entry.sessionId);
-      return true;
-    })
-    .slice(0, max);
-}
-
-// Local agent panes whose session id is known: Claude from its session file, Codex from `codex resume <id>`.
-export function collectLiveAgentPanes(panes: TmuxSession[], sources: {
-  agents: Map<string, string>;
-  claudeSessions: Map<string, { sessionId: string; cwd: string }>;
-  codexSessions: Map<string, string>;
-  lastPromptAtMs: (pane: TmuxSession) => number | undefined;
-}): LiveAgentPane[] {
-  return panes.flatMap((pane) => {
-    if (pane.name !== pane.paneId) {
+export function parseCtxPrompts(output: string): CtxPromptSession[] {
+  let document: unknown;
+  try {
+    document = JSON.parse(output);
+  } catch {
+    throw new ClosedSessionError(`ctx prompts printed no JSON: ${output.trim().slice(0, 200)}`, 502);
+  }
+  if (!isRecord(document) || !Array.isArray(document.sessions)) {
+    throw new ClosedSessionError("ctx prompts printed no sessions list", 502);
+  }
+  return document.sessions.flatMap((value): CtxPromptSession[] => {
+    if (!isRecord(value)) {
       return [];
     }
-    const claude = sources.claudeSessions.get(pane.name);
-    const codexId = sources.agents.get(pane.name) === "codex" ? sources.codexSessions.get(pane.name) : undefined;
-    const known = claude ? { agent: "claude", ...claude } : codexId ? { agent: "codex", sessionId: codexId, cwd: pane.currentPath ?? "" } : null;
-    if (!known || !isAgentSessionId(known.sessionId)) {
+    const { session_id: sessionId, host, harness, project, name, prompt, prompted_at: promptedAt } = value;
+    const promptedAtMs = typeof promptedAt === "string" ? Date.parse(promptedAt) : Number.NaN;
+    if (typeof sessionId !== "string" || typeof host !== "string" || typeof harness !== "string" || typeof project !== "string"
+      || !Number.isFinite(promptedAtMs)) {
       return [];
     }
-    const lastPromptAtMs = sources.lastPromptAtMs(pane);
     return [{
-      name: pane.name,
-      ...(pane.createdAtMs ? { createdAtMs: pane.createdAtMs } : {}),
-      ...known,
-      title: pane.displayName ?? pane.name,
-      ...(lastPromptAtMs ? { lastPromptAtMs } : {})
+      sessionId,
+      host,
+      harness,
+      project,
+      name: typeof name === "string" ? name : "",
+      prompt: typeof prompt === "string" ? prompt : "",
+      promptedAtMs
     }];
   });
 }
 
-export function parseClosedSessionsFile(serialized: string): ClosedSession[] {
-  try {
-    const document: unknown = JSON.parse(serialized);
-    if (!isRecord(document) || document.version !== FILE_VERSION || !Array.isArray(document.entries)) {
-      return [];
-    }
-    return pruneClosedSessions(document.entries.flatMap((entry) => parseClosedSession(entry) ?? []));
-  } catch {
+export async function readCtxPrompts(ctxBin: string | null): Promise<CtxPromptSession[]> {
+  if (!ctxBin) {
     return [];
+  }
+  try {
+    const { stdout } = await execFileAsync(ctxBin, buildCtxPromptsArgs(), { timeout: CTX_TIMEOUT_MS, maxBuffer: CTX_PROMPTS_MAX_BUFFER_BYTES });
+    return parseCtxPrompts(stdout);
+  } catch (error) {
+    if (error instanceof ClosedSessionError) {
+      throw error;
+    }
+    const stderr = error && typeof error === "object" && "stderr" in error ? String(error.stderr).trim() : "";
+    throw new ClosedSessionError(stderr || "ctx prompts failed", 502);
   }
 }
 
-// Agent panes seen live, and the sessions whose pane has since gone; the list is persisted, live panes are not,
-// so closures while the server was down go unrecorded.
-export class ClosedSessionTracker {
-  private live = new Map<string, LiveAgentPane>();
-  private entries: ClosedSession[] = [];
-  private writeTimer: NodeJS.Timeout | null = null;
+function collapseWhitespace(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function truncate(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text;
+}
+
+// Unnamed sessions are titled by their last prompt, cut to fit a row.
+export function closedSessionTitle(name: string, prompt: string, sessionId: string): string {
+  return collapseWhitespace(name) || truncate(collapseWhitespace(prompt), MAX_TITLE_CHARS) || sessionId.slice(0, 8);
+}
+
+// Claude sessions not running in a tmux pane now, newest prompt first, one per id, at most `max`.
+export function selectRecentlyClosed(sessions: CtxPromptSession[], liveIds: Set<string>, max = MAX_CLOSED_SESSIONS): ClosedSession[] {
+  const seen = new Set<string>();
+  return [...sessions]
+    .sort((left, right) => right.promptedAtMs - left.promptedAtMs)
+    .filter((session) => {
+      if (session.harness !== "claude" || !isAgentSessionId(session.sessionId) || liveIds.has(session.sessionId) || seen.has(session.sessionId)) {
+        return false;
+      }
+      seen.add(session.sessionId);
+      return true;
+    })
+    .slice(0, max)
+    .map((session) => ({
+      sessionId: session.sessionId,
+      agent: "claude",
+      title: closedSessionTitle(session.name, session.prompt, session.sessionId),
+      cwd: session.project,
+      lastPrompt: truncate(collapseWhitespace(session.prompt), MAX_PROMPT_CHARS),
+      lastPromptAtMs: session.promptedAtMs
+    }));
+}
+
+// The last `ctx prompts` answer: the first read is awaited, later stale reads refresh once in the background.
+export class CtxPromptsCache {
+  private value: CtxPromptSession[] | null = null;
+  private readAtMs = 0;
+  private pending: Promise<CtxPromptSession[]> | null = null;
+
+  constructor(
+    private readonly read: () => Promise<CtxPromptSession[]>,
+    private readonly now: () => number = Date.now,
+    private readonly ttlMs = CTX_PROMPTS_CACHE_MS
+  ) {}
+
+  async get(): Promise<CtxPromptSession[]> {
+    if (this.value === null) {
+      return this.refresh();
+    }
+    if (this.now() - this.readAtMs >= this.ttlMs) {
+      void this.refresh().catch(() => undefined);
+    }
+    return this.value;
+  }
+
+  refresh(): Promise<CtxPromptSession[]> {
+    if (!this.pending) {
+      this.pending = this.read().then((sessions) => {
+        this.value = sessions;
+        this.readAtMs = this.now();
+        return sessions;
+      }, (error: unknown) => {
+        // A failed refresh keeps the last list and waits a full interval before trying again.
+        this.readAtMs = this.now();
+        if (this.value === null) {
+          throw error;
+        }
+        return this.value;
+      }).finally(() => {
+        this.pending = null;
+      });
+    }
+    return this.pending;
+  }
+}
+
+// Claude's own history (via ctx) minus the sessions live in a tmux pane, so sessions that ended while atw was down count.
+export class RecentlyClosedSessions {
+  private reopened = new Map<string, number>();
 
   constructor(private readonly options: {
-    filePath: string | null;
+    prompts: () => Promise<CtxPromptSession[]>;
+    // Session ids live in a local pane; null until the Claude session scan has run once.
+    liveSessionIds: () => Promise<Set<string> | null>;
     now?: () => number;
-    debounceMs?: number;
-    onClosed?: (entry: ClosedSession) => void;
+    max?: number;
   }) {}
 
-  async load(): Promise<void> {
-    if (!this.options.filePath) {
-      return;
+  async list(): Promise<ClosedSession[]> {
+    const [liveIds, prompts] = await Promise.all([this.options.liveSessionIds(), this.options.prompts()]);
+    if (!liveIds) {
+      return [];
     }
-    const serialized = await readFile(this.options.filePath, "utf8").catch(() => "");
-    this.entries = pruneClosedSessions([...this.entries, ...parseClosedSessionsFile(serialized)]);
-  }
-
-  // Panes with an agent session right now; a closed session that shows up live again leaves the list.
-  remember(panes: LiveAgentPane[]): void {
-    const liveIds = new Set<string>();
-    for (const pane of panes) {
-      this.live.set(pane.name, pane);
-      liveIds.add(pane.sessionId);
-    }
-    const kept = this.entries.filter((entry) => !liveIds.has(entry.sessionId));
-    if (kept.length !== this.entries.length) {
-      this.entries = kept;
-      this.scheduleWrite();
-    }
-  }
-
-  // Every pane tmux lists now; a remembered pane that is gone, or whose id now names a newer pane, closed.
-  sweep(panes: Array<{ name: string; createdAtMs?: number }>): void {
-    const present = new Map(panes.map((pane) => [pane.name, pane]));
-    for (const [name, pane] of this.live) {
-      const current = present.get(name);
-      const reused = current !== undefined && pane.createdAtMs !== undefined && current.createdAtMs !== undefined && current.createdAtMs !== pane.createdAtMs;
-      if (current === undefined || reused) {
-        this.live.delete(name);
-        this.record(pane);
+    const nowMs = (this.options.now ?? Date.now)();
+    for (const [sessionId, atMs] of this.reopened) {
+      if (nowMs - atMs >= REOPENED_GRACE_MS) {
+        this.reopened.delete(sessionId);
       }
     }
+    return selectRecentlyClosed(prompts, new Set([...liveIds, ...this.reopened.keys()]), this.options.max);
   }
 
-  list(): ClosedSession[] {
-    return this.entries;
-  }
-
-  find(sessionId: string): ClosedSession | undefined {
-    return this.entries.find((entry) => entry.sessionId === sessionId);
-  }
-
-  remove(sessionId: string): void {
-    const kept = this.entries.filter((entry) => entry.sessionId !== sessionId);
-    if (kept.length !== this.entries.length) {
-      this.entries = kept;
-      this.scheduleWrite();
-    }
-  }
-
-  async flush(): Promise<void> {
-    if (this.writeTimer) {
-      clearTimeout(this.writeTimer);
-      this.writeTimer = null;
-    }
-    const filePath = this.options.filePath;
-    if (!filePath) {
-      return;
-    }
-    await mkdir(path.dirname(filePath), { recursive: true });
-    const temporaryPath = `${filePath}.${process.pid}.tmp`;
-    await writeFile(temporaryPath, JSON.stringify({ version: FILE_VERSION, entries: this.entries }));
-    await rename(temporaryPath, filePath);
-  }
-
-  private record(pane: LiveAgentPane): void {
-    const entry: ClosedSession = {
-      sessionId: pane.sessionId,
-      agent: pane.agent,
-      cwd: pane.cwd,
-      title: pane.title,
-      closedAtMs: (this.options.now ?? Date.now)(),
-      ...(pane.lastPromptAtMs ? { lastPromptAtMs: pane.lastPromptAtMs } : {})
-    };
-    this.entries = pruneClosedSessions([entry, ...this.entries]);
-    this.scheduleWrite();
-    this.options.onClosed?.(entry);
-  }
-
-  private scheduleWrite(): void {
-    if (!this.options.filePath || this.writeTimer) {
-      return;
-    }
-    this.writeTimer = setTimeout(() => {
-      this.writeTimer = null;
-      this.flush().catch((error: unknown) => console.error("Failed to save closed sessions", error));
-    }, this.options.debounceMs ?? WRITE_DEBOUNCE_MS);
-    this.writeTimer.unref();
+  markReopened(sessionId: string): void {
+    this.reopened.set(sessionId, (this.options.now ?? Date.now)());
   }
 }
 
@@ -352,14 +339,14 @@ export function toClosedSessionDto(entry: ClosedSession, handoff: boolean, homeD
     title: entry.title,
     cwd: entry.cwd,
     cwdLabel: shortenTmuxPanePath(entry.cwd, homeDir),
-    closedAtMs: entry.closedAtMs,
-    ...(entry.lastPromptAtMs ? { lastPromptAtMs: entry.lastPromptAtMs } : {}),
+    lastPrompt: entry.lastPrompt,
+    lastPromptAtMs: entry.lastPromptAtMs,
     handoff
   };
 }
 
 export type ClosedSessionsRouterOptions = {
-  tracker: ClosedSessionTracker;
+  closed: RecentlyClosedSessions;
   handoffs: HandoffCache;
   readCommand: (sessionId: string, mode: ReopenClosedSessionMode) => Promise<string>;
   // Runs ctx's line in a new agent window and returns its pane.
@@ -372,9 +359,9 @@ export function createClosedSessionsRouter(options: ClosedSessionsRouterOptions)
   const router = Router();
 
   async function listClosed(): Promise<ClosedSessionDto[]> {
-    const entries = options.tracker.list();
-    const handoffs = await options.handoffs.lookup(entries.map((entry) => entry.sessionId));
-    return entries.map((entry) => toClosedSessionDto(entry, handoffs.get(entry.sessionId) ?? false));
+    const closed = await options.closed.list();
+    const handoffs = await options.handoffs.lookup(closed.map((entry) => entry.sessionId));
+    return closed.map((entry) => toClosedSessionDto(entry, handoffs.get(entry.sessionId) ?? false));
   }
 
   router.get("/api/tmux/closed-sessions", handle(async (_req, res) => {
@@ -389,14 +376,14 @@ export function createClosedSessionsRouter(options: ClosedSessionsRouterOptions)
     if (!isReopenMode(body.mode)) {
       throw new TmuxRequestError(`Invalid mode: ${JSON.stringify(body.mode ?? null).slice(0, 20)}; use resume or handoff`);
     }
-    // Only sessions atw saw close, so a crafted id never reaches ctx.
-    const entry = options.tracker.find(body.sessionId);
+    // Only sessions in the list the client sees, so a crafted id never reaches ctx.
+    const entry = (await options.closed.list()).find((candidate) => candidate.sessionId === body.sessionId);
     if (!entry) {
       throw new ClosedSessionError(`No recently closed session ${body.sessionId}`, 404);
     }
     const command = await options.readCommand(entry.sessionId, body.mode);
     const opened = await options.openWindow(command, entry);
-    options.tracker.remove(entry.sessionId);
+    options.closed.markReopened(entry.sessionId);
     options.handoffs.forget(entry.sessionId);
     options.onOpened?.(opened.pane);
     const [sessions, closed] = await Promise.all([options.listSessions(), listClosed()]);
