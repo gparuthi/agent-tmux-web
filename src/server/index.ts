@@ -18,13 +18,23 @@ import {
 import { describeCodexNotification } from "../shared/codexEvents.js";
 import { classifyTmuxStatus, resolveTmuxSessionStatus } from "../shared/tmuxStatus.js";
 import { renameWhenReady, waitForAgentPrompt } from "./agentStartName.js";
-import { agentRenamesAfterLaunch, listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, sanitizeNewAgentName, startAgentInTmux } from "./agents.js";
+import { agentRenamesAfterLaunch, listAgentDirectories, listAvailableAgents, NEW_AGENT_TMUX_SESSION, reopenAgentInTmux, sanitizeNewAgentName, startAgentInTmux } from "./agents.js";
 import { createAuthMiddleware, isAuthorizedWebSocketRequest, parseTailscaleLogins } from "./auth.js";
 import { resolveAuthToken } from "./authToken.js";
 import { AgentRowsCache } from "./agentRows.js";
 import { ClaudePromptTimes } from "./claudePrompts.js";
+import {
+  ClosedSessionTracker,
+  collectLiveAgentPanes,
+  createClosedSessionsRouter,
+  DEFAULT_CLOSED_SESSIONS_FILE,
+  findCtxBin,
+  HandoffCache,
+  probeCtxHandoff,
+  readCtxCommand
+} from "./closedSessions.js";
 import { CodexBridge } from "./codexBridge.js";
-import { readTmuxPaneAgents } from "./paneAgents.js";
+import { readCodexPaneSessions, readTmuxPaneAgents } from "./paneAgents.js";
 import {
   buildBrowserRawTerminalPolicy,
   buildTmuxGroupedAttachShellCommand,
@@ -113,6 +123,11 @@ const tmuxLastInput = new TmuxLastInputStore(process.env.AGENT_TMUX_WEB_LAST_INP
 const tmuxWindowSizeGuard = new TmuxWindowSizeGuard({
   filePath: process.env.AGENT_TMUX_WEB_RESIZED_WINDOWS_FILE || DEFAULT_TMUX_RESIZED_WINDOWS_FILE
 });
+const closedSessionHandoffs = new HandoffCache(probeCtxHandoff(() => findCtxBin()));
+const closedSessions = new ClosedSessionTracker({
+  filePath: process.env.AGENT_TMUX_WEB_CLOSED_SESSIONS_FILE || DEFAULT_CLOSED_SESSIONS_FILE,
+  onClosed: (entry) => void closedSessionHandoffs.refresh(entry.sessionId)
+});
 const recentEvents: unknown[] = [];
 const watchPollers = new Map<string, {
   id: string;
@@ -123,7 +138,12 @@ const watchPollers = new Map<string, {
 }>();
 const tmuxWatch = new TmuxWatchStore({
   capture: captureTmuxPane,
-  listSessions: listTmuxSessions,
+  // The watch's two-second pane listing also notices closed agent panes while no browser is polling.
+  listSessions: async () => {
+    const panes = await listTmuxSessions();
+    closedSessions.sweep(panes);
+    return panes;
+  },
   onEvent: (event) => broadcast({ type: "tmux-watch-done", event }),
   onError: (error, session) => {
     if ((process.env.AGENT_TMUX_WEB_VERBOSE ?? process.env.CODEX_WEB_VERBOSE) === "1") {
@@ -418,6 +438,15 @@ app.use(createTmuxRenameRouter({
   submitText: (target, text) => sendTmuxText(target, text, true, "enter")
 }));
 
+app.use(createClosedSessionsRouter({
+  tracker: closedSessions,
+  handoffs: closedSessionHandoffs,
+  readCommand: async (sessionId, mode) => readCtxCommand(await findCtxBin(), sessionId, mode),
+  openWindow: (command, entry) => reopenAgentInTmux(command, entry),
+  listSessions: () => listTmuxSessionsWithStatus(),
+  onOpened: (pane) => tmuxLastInput.record(pane)
+}));
+
 const feedbackAgent = () => process.env.ATW_FEEDBACK_AGENT || "claude";
 const sendFeedback = async (target: string, text: string, options?: { hold?: boolean }) => tmuxSendQueue.send({
   target,
@@ -574,6 +603,24 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
   const promptTimes = claudePromptTimes.get(localPanes.map((session) => ({ paneId: session.name, panePid: session.panePid })));
   const saidByPane = claudePromptTimes.said();
   const claudePanes = claudePromptTimes.livePanes();
+  const paneLastInputAtMs = (session: (typeof sessions)[number]) => {
+    const local = session.name === session.paneId;
+    return tmuxLastPromptAtMs({
+      // The process tree knows a Claude pane before the first transcript refresh lands.
+      claudeLive: local && (paneAgents.get(session.name) === "claude" || claudePanes.has(session.name)),
+      claudePromptAtMs: local ? promptTimes.get(session.name) : undefined,
+      storedAtMs: tmuxLastInput.get(session.name),
+      createdAtMs: session.createdAtMs
+    });
+  };
+  // Before the slow per-pane captures, so this listing never re-adds a pane the watch has seen close since.
+  closedSessions.remember(collectLiveAgentPanes(localPanes, {
+    agents: paneAgents,
+    claudeSessions: claudePromptTimes.sessions(),
+    codexSessions: await readCodexPaneSessions(localPanes, paneAgents),
+    lastPromptAtMs: paneLastInputAtMs
+  }));
+  closedSessions.sweep(sessions);
   return Promise.all(sessions.map(async (session) => {
     const {
       clientCount,
@@ -595,13 +642,7 @@ async function listTmuxSessionsWithStatus(excludedBrowserClientId?: string | nul
       visibleStatus,
       harnessStatuses.get(session.name)
     );
-    const lastInputAtMs = tmuxLastPromptAtMs({
-      // The process tree knows a Claude pane before the first transcript refresh lands.
-      claudeLive: local && (paneAgents.get(session.name) === "claude" || claudePanes.has(session.name)),
-      claudePromptAtMs: local ? promptTimes.get(session.name) : undefined,
-      storedAtMs: tmuxLastInput.get(session.name),
-      createdAtMs: session.createdAtMs
-    });
+    const lastInputAtMs = paneLastInputAtMs(session);
     const agent = paneAgents.get(session.name);
     const lastSaid = local ? saidByPane.get(session.name) : undefined;
     const queued = tmuxSendQueue.list(session.name).map(toTmuxQueuedMessageDto);
@@ -871,6 +912,8 @@ server.listen(port, bindHost, async () => {
   console.log(`agent-tmux-web listening on http://${bindHost}:${port}`);
   startUploadCleanup();
   void tmuxLastInput.load();
+  void closedSessions.load().then(() => closedSessionHandoffs.lookup(closedSessions.list().map((entry) => entry.sessionId)))
+    .catch((error: unknown) => console.error("Failed to load closed sessions", error));
   void tmuxSendQueue.load().catch((error: unknown) => console.error("Failed to load the tmux send queue", error));
   tmuxSendQueue.start();
   void sweepOrphanedRawSessions();

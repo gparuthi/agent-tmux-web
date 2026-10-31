@@ -157,6 +157,26 @@ export type StartAgentResultDto = {
   sessions: TmuxSessionDto[];
 };
 
+// An agent session whose tmux pane closed while atw was running; ctx can resume it or start fresh from its handoff.
+export type ClosedSessionDto = {
+  sessionId: string;
+  agent: string;
+  title: string;
+  cwd: string;
+  // Home-shortened, middle-elided path for display.
+  cwdLabel: string;
+  closedAtMs: number;
+  lastPromptAtMs?: number;
+  // ctx has a checkpoint to start a fresh agent from.
+  handoff: boolean;
+};
+
+export type ReopenClosedSessionMode = "resume" | "handoff";
+
+export type ReopenClosedSessionResultDto = StartAgentResultDto & {
+  closed: ClosedSessionDto[];
+};
+
 export type TmuxToolModeDto = {
   id: string;
   label: string;

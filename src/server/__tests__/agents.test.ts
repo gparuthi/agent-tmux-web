@@ -11,6 +11,8 @@ import {
   AgentRequestError,
   buildAgentDefinitions,
   buildAgentShellArgv,
+  buildAgentWindowTmuxArgs,
+  buildCommandShellArgv,
   buildAgentWindowName,
   buildNewAgentTmuxArgs,
   findAgentDefinition,
@@ -196,6 +198,15 @@ describe("named new agents", () => {
       "/bin/zsh", "-lic", "cd /Users/me/work/atw && /Users/me/.local/bin/claude --name 'fix auth'; exec /bin/zsh -l"
     ]);
     expect(buildAgentShellArgv(pi, "/bin/zsh", "/srv/x", "x")[2]).toBe("cd /srv/x && /Users/me/.local/bin/pi --name x; exec /bin/zsh -l");
+  });
+
+  it("runs a reopen line through the login shell in a window named after the closed session", () => {
+    const line = "cd '/Users/me/work/app' && claude -r 8bf3df3b-0000-4000-8000-000000000000";
+    const argv = buildCommandShellArgv("/bin/zsh", line);
+    expect(argv).toEqual(["/bin/zsh", "-lic", `${line}; exec /bin/zsh -l`]);
+    expect(buildAgentWindowTmuxArgs({ directory: "/Users/me/work/app", windowName: buildAgentWindowName("claude", "/Users/me/work/app", "fix auth"), argv, sessionExists: true })).toEqual([
+      "new-window", "-t", "=main:", "-P", "-F", "#{pane_id}", "-c", "/Users/me/work/app", "-n", "fix auth", ...argv
+    ]);
   });
 
   it("leaves the launch and window name unchanged for an empty name", () => {

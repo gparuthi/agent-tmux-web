@@ -149,6 +149,25 @@ export function buildAgentShellArgv(definition: AvailableAgent, shell: string, d
   return [shell, "-lic", `cd ${shellQuote(directory)} && ${launch}; exec ${shell} -l`];
 }
 
+// A trusted one-liner, such as ctx's resume line; the pane drops to a login shell when it exits.
+export function buildCommandShellArgv(shell: string, command: string): string[] {
+  return [shell, "-lic", `${command}; exec ${shell} -l`];
+}
+
+export function buildAgentWindowTmuxArgs(options: {
+  directory: string;
+  windowName: string;
+  argv: string[];
+  sessionExists: boolean;
+  session?: string;
+}): string[] {
+  const session = options.session ?? NEW_AGENT_TMUX_SESSION;
+  const placement = options.sessionExists
+    ? ["new-window", "-t", `=${session}:`]
+    : ["new-session", "-d", "-s", session];
+  return [...placement, "-P", "-F", "#{pane_id}", "-c", options.directory, "-n", options.windowName, ...options.argv];
+}
+
 export function buildNewAgentTmuxArgs(options: {
   definition: AvailableAgent;
   directory: string;
@@ -158,13 +177,13 @@ export function buildNewAgentTmuxArgs(options: {
   // Sanitized session name; empty keeps the default window name and plain launch.
   name?: string;
 }): string[] {
-  const session = options.session ?? NEW_AGENT_TMUX_SESSION;
-  const name = buildAgentWindowName(options.definition.id, options.directory, options.name);
-  const command = buildAgentShellArgv(options.definition, options.shell, options.directory, options.name);
-  const placement = options.sessionExists
-    ? ["new-window", "-t", `=${session}:`]
-    : ["new-session", "-d", "-s", session];
-  return [...placement, "-P", "-F", "#{pane_id}", "-c", options.directory, "-n", name, ...command];
+  return buildAgentWindowTmuxArgs({
+    directory: options.directory,
+    windowName: buildAgentWindowName(options.definition.id, options.directory, options.name),
+    argv: buildAgentShellArgv(options.definition, options.shell, options.directory, options.name),
+    sessionExists: options.sessionExists,
+    session: options.session
+  });
 }
 
 export function resolveLoginShell(): string {
@@ -187,20 +206,34 @@ export async function startAgentInTmux(
   const definition = findAgentDefinition(agentId, await listAvailableAgents(options.definitions));
   const directory = await resolveAgentDirectory(directoryInput, options.homeDir);
   const name = sanitizeNewAgentName(options.name);
+  const windowName = buildAgentWindowName(definition.id, directory, name);
+  const argv = buildAgentShellArgv(definition, options.shell ?? resolveLoginShell(), directory, name);
+  return { pane: await openAgentWindowInTmux(directory, windowName, argv), directory, windowName };
+}
+
+// Runs ctx's resume or handoff line in a new window named after the closed session.
+export async function reopenAgentInTmux(
+  command: string,
+  session: { agent: string; cwd: string; title: string },
+  options: { shell?: string; homeDir?: string } = {}
+): Promise<{ pane: string; directory: string; windowName: string }> {
+  // The line cds itself; the window starts in its directory only while that still exists.
+  const homeDir = options.homeDir ?? os.homedir();
+  const directory = await resolveAgentDirectory(session.cwd, homeDir).catch(() => homeDir);
+  const windowName = buildAgentWindowName(session.agent, directory, sanitizeNewAgentName(session.title));
+  const argv = buildCommandShellArgv(options.shell ?? resolveLoginShell(), command);
+  return { pane: await openAgentWindowInTmux(directory, windowName, argv), directory, windowName };
+}
+
+async function openAgentWindowInTmux(directory: string, windowName: string, argv: string[]): Promise<string> {
   const sessionExists = await execFileAsync("tmux", ["has-session", "-t", `=${NEW_AGENT_TMUX_SESSION}`])
     .then(() => true, () => false);
-  const { stdout } = await execFileAsync("tmux", buildNewAgentTmuxArgs({
-    definition,
-    directory,
-    shell: options.shell ?? resolveLoginShell(),
-    sessionExists,
-    name
-  }));
+  const { stdout } = await execFileAsync("tmux", buildAgentWindowTmuxArgs({ directory, windowName, argv, sessionExists }));
   const pane = stdout.trim();
   if (!/^%\d+$/.test(pane)) {
     throw new Error(`tmux did not report the new pane id: ${pane}`);
   }
-  return { pane, directory, windowName: buildAgentWindowName(definition.id, directory, name) };
+  return pane;
 }
 
 export function defaultAgentRepoRoots(homeDir: string = os.homedir()): string[] {

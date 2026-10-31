@@ -21,6 +21,13 @@ export type ClaudeSessionFile = {
   paneId: string;
 };
 
+export type ClaudePaneSession = {
+  sessionId: string;
+  cwd: string;
+};
+
+type LiveClaudeSession = ClaudePaneSession & { paneId: string; transcriptPath: string };
+
 export type ClaudePaneProcess = {
   paneId: string;
   panePid?: number;
@@ -198,6 +205,7 @@ export class ClaudePromptTimes {
   private latest = new Map<string, number>();
   private latestSaid = new Map<string, string>();
   private live = new Set<string>();
+  private latestSessions = new Map<string, ClaudePaneSession>();
   private refreshedAtMs = 0;
   private refreshing: Promise<void> | null = null;
   private readonly transcriptCache = new Map<string, TranscriptSummary & { size: number; mtimeMs: number }>();
@@ -228,13 +236,20 @@ export class ClaudePromptTimes {
     return this.latestSaid;
   }
 
+  // Each live Claude pane's session id and cwd, from the same cached refresh as get().
+  sessions(): Map<string, ClaudePaneSession> {
+    return this.latestSessions;
+  }
+
   async refresh(panes: ClaudePaneProcess[]): Promise<void> {
     const next = new Map<string, number>();
     const nextSaid = new Map<string, string>();
     const nextLive = new Set<string>();
+    const nextSessions = new Map<string, ClaudePaneSession>();
     const visited = new Set<string>();
-    for (const { paneId, transcriptPath } of await this.liveSessions(panes)) {
+    for (const { paneId, sessionId, cwd, transcriptPath } of await this.liveSessions(panes)) {
       nextLive.add(paneId);
+      nextSessions.set(paneId, { sessionId, cwd });
       visited.add(transcriptPath);
       const { atMs, said } = await this.readTranscript(transcriptPath);
       if (atMs) {
@@ -247,6 +262,7 @@ export class ClaudePromptTimes {
     this.latest = next;
     this.latestSaid = nextSaid;
     this.live = nextLive;
+    this.latestSessions = nextSessions;
     for (const transcriptPath of this.transcriptCache.keys()) {
       if (!visited.has(transcriptPath)) {
         this.transcriptCache.delete(transcriptPath);
@@ -266,7 +282,7 @@ export class ClaudePromptTimes {
     return tail === null ? null : transcriptHasPrompt(tail, text);
   }
 
-  private async liveSessions(panes: ClaudePaneProcess[]): Promise<Array<{ paneId: string; transcriptPath: string }>> {
+  private async liveSessions(panes: ClaudePaneProcess[]): Promise<LiveClaudeSession[]> {
     const sessionsDir = path.join(this.configDir, "sessions");
     const names = (await readdir(sessionsDir).catch(() => [] as string[])).filter((name) => /^\d+\.json$/.test(name));
     if (names.length === 0) {
@@ -274,12 +290,14 @@ export class ClaudePromptTimes {
     }
     const parents = parseProcessParents((await execFileAsync("ps", ["-A", "-o", "pid=,ppid="])).stdout);
     const panesById = new Map(panes.map((pane) => [pane.paneId, pane]));
-    const live: Array<{ paneId: string; transcriptPath: string }> = [];
+    const live: LiveClaudeSession[] = [];
     for (const name of names) {
       const session = parseClaudeSessionFile(await readFile(path.join(sessionsDir, name), "utf8").catch(() => ""));
       if (session && isLiveClaudePane(session, panesById.get(session.paneId), parents)) {
         live.push({
           paneId: session.paneId,
+          sessionId: session.sessionId,
+          cwd: session.cwd,
           transcriptPath: path.join(this.configDir, "projects", claudeProjectDirName(session.cwd), `${session.sessionId}.jsonl`)
         });
       }

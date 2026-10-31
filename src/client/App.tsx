@@ -48,8 +48,11 @@ import {
   TMUX_CAPTURE_HISTORY_LINES,
   type AgentsDto,
   type AppStatus,
+  type ClosedSessionDto,
   type CodexModel,
   type CodexSkill,
+  type ReopenClosedSessionMode,
+  type ReopenClosedSessionResultDto,
   type StartAgentResultDto,
   type TmuxActionDto,
   type TmuxActionRunDto,
@@ -133,6 +136,7 @@ import {
   type TmuxSessionGroupPreferences
 } from "./tmuxSessionGroups.js";
 import { TmuxSessionList } from "./TmuxSessionList.js";
+import { ClosedSessionsSection } from "./ClosedSessionsSection.js";
 import { filterZenPanes, nextZenPane, parseZenMode, serializeZenMode, ZEN_MODE_STORAGE_KEY } from "./zenMode.js";
 import { ZenChip, ZenNextButton } from "./ZenModeControls.js";
 import { installTmuxRailShortcuts, railShortcutsBlocked } from "./tmuxRailShortcuts.js";
@@ -389,6 +393,7 @@ export function App() {
   const [timeline, setTimeline] = useState<TimelineEntry[]>([]);
   const [error, setError] = useState("");
   const [newAgentOpen, setNewAgentOpen] = useState(false);
+  const [closedSessions, setClosedSessions] = useState<ClosedSessionDto[]>([]);
   const [windowSnoozeTarget, setWindowSnoozeTarget] = useState("");
   const [tmuxActionsTarget, setTmuxActionsTarget] = useState("");
   const [renameSession, setRenameSession] = useState<{ target: string; agent: string; initialName: string } | null>(null);
@@ -940,6 +945,23 @@ export function App() {
       selectTmuxSessionOrNone(next);
     }
   }, [tmuxSessions]);
+
+  // A pane leaving the list may be a closure the server just recorded.
+  const tmuxPaneNamesKey = tmuxSessions.map((session) => session.name).join(" ");
+  useEffect(() => {
+    if (demoMode) {
+      return;
+    }
+    let cancelled = false;
+    loadClosedSessions().then((entries) => {
+      if (!cancelled) {
+        setClosedSessions(entries);
+      }
+    }, () => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tmuxPaneNamesKey]);
 
   useEffect(() => {
     if (demoMode) {
@@ -2289,6 +2311,17 @@ export function App() {
     selectTmuxSession(result.pane);
   }
 
+  async function reopenClosedSession(entry: ClosedSessionDto, mode: ReopenClosedSessionMode) {
+    try {
+      const result = await reopenClosedSessionOnServer(entry.sessionId, mode);
+      setClosedSessions(result.closed);
+      setTmuxSessions(result.sessions);
+      selectTmuxSession(result.pane);
+    } catch (reopenError) {
+      setTmuxToast({ text: readApiErrorMessage(reopenError), error: true });
+    }
+  }
+
   function selectTmuxSession(session: string) {
     clearTmuxFollowTimers(tmuxFollowTimersRef);
     initialTmuxViewAppliedRef.current = true;
@@ -2956,6 +2989,7 @@ export function App() {
               showState={!zenMode}
               onExitZen={() => updateZenMode(false)}
               onWake={windowSnoozeAvailable ? (name) => wakeTmuxWindow(name).catch((wakeError: unknown) => setTmuxToast({ text: readApiErrorMessage(wakeError), error: true })) : undefined}
+              footer={<ClosedSessionsSection entries={closedSessions} onReopen={reopenClosedSession} />}
             />
           </div>
           <div className="tmux-connection-status">
@@ -3127,6 +3161,17 @@ export function App() {
 
 function loadNewAgentOptions(): Promise<AgentsDto> {
   return api<{ data: AgentsDto }>("/api/tmux/agents").then((result) => result.data);
+}
+
+function loadClosedSessions(): Promise<ClosedSessionDto[]> {
+  return api<{ data: ClosedSessionDto[] }>("/api/tmux/closed-sessions").then((result) => result.data);
+}
+
+function reopenClosedSessionOnServer(sessionId: string, mode: ReopenClosedSessionMode): Promise<ReopenClosedSessionResultDto> {
+  return api<{ data: ReopenClosedSessionResultDto }>("/api/tmux/closed-sessions/reopen", {
+    method: "POST",
+    body: JSON.stringify({ sessionId, mode })
+  }).then((result) => result.data);
 }
 
 function startNewAgent(agent: string, cwd: string, name: string): Promise<StartAgentResultDto> {

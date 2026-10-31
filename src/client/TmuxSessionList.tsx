@@ -77,6 +77,8 @@ type TmuxSessionListProps = {
   onExitZen?: () => void;
   // Zen mode turns this off: the sub-line keeps the target and time but drops the state and last reply.
   showState?: boolean;
+  // Rendered last inside the scrolling list, e.g. the recently closed sessions.
+  footer?: ReactNode;
   nowMs?: number;
 };
 
@@ -92,6 +94,7 @@ export function TmuxSessionList({
   zenHiddenCount = 0,
   onExitZen,
   showState = true,
+  footer,
   nowMs = Date.now()
 }: TmuxSessionListProps) {
   const { pinned, groups } = groupTmuxPanes(panes, pinnedNames);
@@ -233,6 +236,7 @@ export function TmuxSessionList({
           <button type="button" onClick={onExitZen}>Show all</button>
         </div>
       )}
+      {footer}
     </div>
   );
 }

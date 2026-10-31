@@ -153,6 +153,7 @@ describe("ClaudePromptTimes", () => {
     expect([...times.said()]).toEqual([["%7", "All green."]]);
     // The dead session's pane is not a live Claude pane.
     expect([...times.livePanes()]).toEqual(["%7"]);
+    expect([...times.sessions()]).toEqual([["%7", { sessionId: "live", cwd }]]);
   });
 
   it("reads further back once when a tool-heavy tail holds no prompt, as after a restart", async () => {
