@@ -13,7 +13,8 @@ import {
   lastHumanPromptAtMs,
   parseClaudeSessionFile,
   parseProcessParents,
-  summarizeClaudeText
+  summarizeClaudeText,
+  transcriptHasPrompt
 } from "../claudePrompts.js";
 
 const assistantLine = (content: unknown, extra: Record<string, unknown> = {}) => JSON.stringify({
@@ -108,6 +109,22 @@ describe("Claude prompt source", () => {
     expect(isLiveClaudePane(session, undefined, parents)).toBe(false);
     expect(isLiveClaudePane({ ...session, pid: 31337 }, { paneId: "%12", panePid: 31337 }, parents)).toBe(false);
   });
+
+  it("finds a typed prompt in main-thread user records only, whitespace aside", () => {
+    const text = "Feedback from the Agent Tmux web UI: the \"Fit\" button is off";
+    const tail = [
+      "{\"cut mid-record",
+      userLine("2026-10-30T22:04:50.000Z", "human", [{ type: "text", text: "Feedback from the Agent Tmux web UI:  the \"Fit\"\nbutton is off" }]),
+      ""
+    ].join("\n");
+    expect(transcriptHasPrompt(tail, text)).toBe(true);
+    expect(transcriptHasPrompt(userLine("2026-10-30T22:04:50.000Z", "human", text), text)).toBe(true);
+    expect(transcriptHasPrompt(userLine("2026-10-30T22:04:50.000Z", "human", "something else"), text)).toBe(false);
+    expect(transcriptHasPrompt(JSON.stringify({ type: "user", isSidechain: true, message: { content: text } }), text)).toBe(false);
+    expect(transcriptHasPrompt(userLine("2026-10-30T22:04:50.000Z", null, [{ type: "tool_result", content: text }]), text)).toBe(false);
+    expect(transcriptHasPrompt(assistantLine([{ type: "text", text }]), text)).toBe(false);
+    expect(transcriptHasPrompt("", text)).toBe(false);
+  });
 });
 
 describe("ClaudePromptTimes", () => {
@@ -152,6 +169,23 @@ describe("ClaudePromptTimes", () => {
     const panes = [{ paneId: "%165", panePid: process.pid }];
     await times.refresh(panes);
     expect([...times.get(panes)]).toEqual([["%165", Date.parse("2026-10-29T05:18:12.427Z")]]);
+  });
+
+  it("checks a pane's live transcript for a prompt: missing transcript means no, no session means unknown", async () => {
+    const cwd = "/Users/me/work/atw";
+    const projectDir = path.join(dir, "projects", claudeProjectDirName(cwd));
+    await mkdir(path.join(dir, "sessions"), { recursive: true });
+    await mkdir(projectDir, { recursive: true });
+    await writeFile(path.join(dir, "sessions", `${process.pid}.json`), JSON.stringify({ pid: process.pid, sessionId: "fresh", cwd, tmux: "atw:@2.%9" }));
+    const times = new ClaudePromptTimes(dir);
+    const pane = { paneId: "%9", panePid: process.pid };
+
+    expect(await times.paneTranscriptHasPrompt(pane, "Feedback from the Agent Tmux web UI: hi")).toBe(false);
+    await writeFile(path.join(projectDir, "fresh.jsonl"), `${userLine("2026-10-30T22:04:55.000Z", "human", "Feedback from the Agent Tmux web UI: hi")}\n`);
+    expect(await times.paneTranscriptHasPrompt(pane, "Feedback from the Agent Tmux web UI: hi")).toBe(true);
+    expect(await times.paneTranscriptHasPrompt(pane, "Feedback from the Agent Tmux web UI: other")).toBe(false);
+    expect(await times.paneTranscriptHasPrompt({ paneId: "%10", panePid: process.pid }, "hi")).toBeNull();
+    expect(await times.paneTranscriptHasPrompt({ paneId: "%9", panePid: 999999 }, "hi")).toBeNull();
   });
 
   it("returns nothing when there is no Claude config", async () => {

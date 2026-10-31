@@ -130,6 +130,35 @@ export function lastAssistantText(transcriptTail: string): string | undefined {
   return undefined;
 }
 
+// Whether a main-thread user record in a transcript tail carries this text, whitespace aside.
+export function transcriptHasPrompt(transcriptTail: string, text: string): boolean {
+  const wanted = collapseWhitespace(text);
+  if (!wanted) {
+    return false;
+  }
+  return transcriptTail.split("\n").some((line) => {
+    if (!line.includes("\"user\"")) {
+      return false;
+    }
+    try {
+      const record = JSON.parse(line) as ClaudeUserRecord;
+      if (record.type !== "user" || record.isSidechain === true) {
+        return false;
+      }
+      const content = record.message?.content;
+      const blocks = Array.isArray(content) ? content as Array<{ type?: unknown; text?: unknown }> : [];
+      const texts = typeof content === "string" ? [content] : blocks.flatMap((block) => block.type === "text" && typeof block.text === "string" ? [block.text] : []);
+      return texts.some((entry) => collapseWhitespace(entry).includes(wanted));
+    } catch {
+      return false;
+    }
+  });
+}
+
+function collapseWhitespace(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
 export function parseProcessParents(psOutput: string): Map<number, number> {
   const parents = new Map<number, number>();
   for (const line of psOutput.split("\n")) {
@@ -200,34 +229,19 @@ export class ClaudePromptTimes {
   }
 
   async refresh(panes: ClaudePaneProcess[]): Promise<void> {
-    const sessionsDir = path.join(this.configDir, "sessions");
-    const names = (await readdir(sessionsDir).catch(() => [] as string[])).filter((name) => /^\d+\.json$/.test(name));
-    if (names.length === 0) {
-      this.latest = new Map();
-      this.latestSaid = new Map();
-      this.live = new Set();
-      return;
-    }
-    const parents = parseProcessParents((await execFileAsync("ps", ["-A", "-o", "pid=,ppid="])).stdout);
-    const panesById = new Map(panes.map((pane) => [pane.paneId, pane]));
     const next = new Map<string, number>();
     const nextSaid = new Map<string, string>();
     const nextLive = new Set<string>();
     const visited = new Set<string>();
-    for (const name of names) {
-      const session = parseClaudeSessionFile(await readFile(path.join(sessionsDir, name), "utf8").catch(() => ""));
-      if (!session || !isLiveClaudePane(session, panesById.get(session.paneId), parents)) {
-        continue;
-      }
-      nextLive.add(session.paneId);
-      const transcriptPath = path.join(this.configDir, "projects", claudeProjectDirName(session.cwd), `${session.sessionId}.jsonl`);
+    for (const { paneId, transcriptPath } of await this.liveSessions(panes)) {
+      nextLive.add(paneId);
       visited.add(transcriptPath);
       const { atMs, said } = await this.readTranscript(transcriptPath);
       if (atMs) {
-        next.set(session.paneId, Math.max(next.get(session.paneId) ?? 0, atMs));
+        next.set(paneId, Math.max(next.get(paneId) ?? 0, atMs));
       }
       if (said) {
-        nextSaid.set(session.paneId, said);
+        nextSaid.set(paneId, said);
       }
     }
     this.latest = next;
@@ -238,6 +252,39 @@ export class ClaudePromptTimes {
         this.transcriptCache.delete(transcriptPath);
       }
     }
+  }
+
+  // Whether the pane's live Claude session has a user record with this text; null when no session or transcript maps to the pane.
+  async paneTranscriptHasPrompt(pane: ClaudePaneProcess, text: string): Promise<boolean | null> {
+    const session = (await this.liveSessions([pane])).find((entry) => entry.paneId === pane.paneId);
+    if (!session) {
+      return null;
+    }
+    // A live session with no transcript file yet has recorded no prompt.
+    const tail = await readTail(session.transcriptPath, TRANSCRIPT_TAIL_BYTES)
+      .catch((error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT" ? "" : null);
+    return tail === null ? null : transcriptHasPrompt(tail, text);
+  }
+
+  private async liveSessions(panes: ClaudePaneProcess[]): Promise<Array<{ paneId: string; transcriptPath: string }>> {
+    const sessionsDir = path.join(this.configDir, "sessions");
+    const names = (await readdir(sessionsDir).catch(() => [] as string[])).filter((name) => /^\d+\.json$/.test(name));
+    if (names.length === 0) {
+      return [];
+    }
+    const parents = parseProcessParents((await execFileAsync("ps", ["-A", "-o", "pid=,ppid="])).stdout);
+    const panesById = new Map(panes.map((pane) => [pane.paneId, pane]));
+    const live: Array<{ paneId: string; transcriptPath: string }> = [];
+    for (const name of names) {
+      const session = parseClaudeSessionFile(await readFile(path.join(sessionsDir, name), "utf8").catch(() => ""));
+      if (session && isLiveClaudePane(session, panesById.get(session.paneId), parents)) {
+        live.push({
+          paneId: session.paneId,
+          transcriptPath: path.join(this.configDir, "projects", claudeProjectDirName(session.cwd), `${session.sessionId}.jsonl`)
+        });
+      }
+    }
+    return live;
   }
 
   // Re-reads a transcript tail only when its size or mtime changed.

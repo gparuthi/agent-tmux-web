@@ -243,6 +243,34 @@ describe("tmux send queue", () => {
     expect(world.texts()).toEqual(["waiting"]);
   });
 
+  it("holds text sent with hold for a busy Claude pane and types it once the turn ends, never into a blocked prompt", async () => {
+    world.set("%1", "claude", "working");
+    const queue = world.queue();
+    const held = await queue.send({ ...request("%1", "feedback"), hold: true });
+    expect(held).toMatchObject({ target: "%1", agent: "claude", text: "feedback", hold: true });
+    expect(world.typed).toEqual([]);
+
+    world.advance(1000);
+    world.set("%1", "claude", "blocked");
+    await queue.tick();
+    expect(world.typed).toEqual([]);
+
+    world.advance(1000);
+    world.set("%1", "claude", "idle", Math.floor(world.nowMs / 1000));
+    await queue.tick();
+    expect(world.texts()).toEqual(["feedback"]);
+    expect(world.delivered).toEqual(["feedback"]);
+    expect(queue.list()).toEqual([]);
+  });
+
+  it("types a held send at once when the pane already reads at a prompt, and holds it while the row is missing", async () => {
+    world.set("%1", "claude", "idle", Math.floor(START_MS / 1000) - 60);
+    const queue = world.queue();
+    expect(await queue.send({ ...request("%1", "now"), hold: true })).toBeNull();
+    expect(await queue.send({ ...request("%9", "unseen"), hold: true })).not.toBeNull();
+    expect(world.texts()).toEqual(["now"]);
+  });
+
   it("forgets everything held for a closed pane", async () => {
     world.set("%5", "hax", "working");
     const queue = world.queue();
@@ -293,6 +321,22 @@ describe("tmux send queue", () => {
       expect(world.typed).toEqual([{ target: "%5", text: "survive", enter: true, submitKey: "enter" }]);
       await after.flush();
       expect(parseTmuxSendQueueFile(await readFile(filePath, "utf8")).messages.map((message) => message.text)).toEqual(["no enter"]);
+    });
+
+    it("keeps a held Claude message held across a restart", async () => {
+      world.set("%1", "claude", "working");
+      const before = world.queue(filePath);
+      await before.send({ ...request("%1", "held feedback"), hold: true });
+      await before.flush();
+
+      const after = world.queue(filePath);
+      await after.load();
+      expect(after.list().map((message) => message.hold)).toEqual([true]);
+      world.advance(1000);
+      world.set("%1", "claude", "done", Math.floor(world.nowMs / 1000));
+      await after.tick();
+      expect(world.texts()).toEqual(["held feedback"]);
+      await after.flush();
     });
 
     it("keeps the in-flight send's tracking across a restart", async () => {

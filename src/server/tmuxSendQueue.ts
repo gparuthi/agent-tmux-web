@@ -29,6 +29,8 @@ export type TmuxQueuedMessage = {
   enter: boolean;
   submitKey: TmuxSubmitKey;
   label?: string;
+  // Held until the pane reads at a prompt whatever its agent, not only for agents that drop type-ahead.
+  hold?: boolean;
   queuedAtMs: number;
 };
 
@@ -41,6 +43,7 @@ export type TmuxSendRequest = {
   enter: boolean;
   submitKey: TmuxSubmitKey;
   label?: string | null;
+  hold?: boolean;
 };
 
 // Whether a pane whose agent drops type-ahead can take the next message now.
@@ -98,7 +101,7 @@ function parseMessage(entry: unknown): TmuxQueuedMessage | null {
   if (!isRecord(entry)) {
     return null;
   }
-  const { id, target, agent, text, enter, submitKey, label, queuedAtMs } = entry;
+  const { id, target, agent, text, enter, submitKey, label, hold, queuedAtMs } = entry;
   if (typeof id !== "string" || !id || typeof target !== "string" || !target || typeof agent !== "string" || typeof text !== "string" || !text
     || typeof queuedAtMs !== "number" || !Number.isFinite(queuedAtMs) || typeof submitKey !== "string" || !SUBMIT_KEYS.has(submitKey)) {
     return null;
@@ -111,8 +114,14 @@ function parseMessage(entry: unknown): TmuxQueuedMessage | null {
     enter: enter !== false,
     submitKey: submitKey as TmuxSubmitKey,
     ...(typeof label === "string" && label ? { label } : {}),
+    ...(hold === true ? { hold: true } : {}),
     queuedAtMs
   };
+}
+
+// A held message never answers a blocked pane: that is a permission or trust prompt, not an empty one.
+function canTypeNow(hold: boolean | undefined, row: AgentRow | undefined, snapshotEpochSec: number, track: TmuxSendTrack | undefined, settleMs: number): boolean {
+  return paneReadyForInput(row, snapshotEpochSec, track, settleMs) && !(hold && row?.status === "blocked");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -132,7 +141,7 @@ export type TmuxSendQueueOptions = {
   settleMs?: number;
 };
 
-// Holds text for panes whose agent drops input typed mid-turn and types it once the turn ends, oldest first.
+// Holds text for panes whose agent drops input typed mid-turn, or sent with hold, and types it once the turn ends, oldest first.
 export class TmuxSendQueue {
   private messages: TmuxQueuedMessage[] = [];
   private sent = new Map<string, TmuxSendTrack>();
@@ -187,14 +196,14 @@ export class TmuxSendQueue {
       const snapshot = await this.options.readRows();
       const row = snapshot?.rows.get(request.target);
       const waiting = this.messages.some((message) => message.target === request.target);
-      if (!waiting && (!snapshot || !row || !tmuxAgentDropsTypeAhead(row.kind))) {
+      if (!waiting && !request.hold && (!snapshot || !row || !tmuxAgentDropsTypeAhead(row.kind))) {
         await this.options.typeText(request.target, request.text, request.enter, request.submitKey);
         return null;
       }
       if (snapshot) {
         this.observe(snapshot);
       }
-      if (!waiting && snapshot && paneReadyForInput(row, snapshot.epochSec, this.sent.get(request.target), this.settleMs)) {
+      if (!waiting && snapshot && canTypeNow(request.hold, row, snapshot.epochSec, this.sent.get(request.target), this.settleMs)) {
         await this.options.typeText(request.target, request.text, request.enter, request.submitKey);
         this.sent.set(request.target, { sentAtMs: this.now(), sawWorking: false });
         this.persist();
@@ -208,6 +217,7 @@ export class TmuxSendQueue {
         enter: request.enter,
         submitKey: request.submitKey,
         ...(request.label ? { label: request.label } : {}),
+        ...(request.hold ? { hold: true } : {}),
         queuedAtMs: this.now()
       };
       this.messages.push(message);
@@ -254,11 +264,9 @@ export class TmuxSendQueue {
       const targets = [...new Set(this.messages.map((message) => message.target))];
       for (const target of targets) {
         const row = snapshot.rows.get(target);
-        if (!row || !tmuxAgentDropsTypeAhead(row.kind) || !paneReadyForInput(row, snapshot.epochSec, this.sent.get(target), this.settleMs)) {
-          continue;
-        }
         const next = this.messages.find((message) => message.target === target);
-        if (!next) {
+        if (!next || !row || !(tmuxAgentDropsTypeAhead(row.kind) || next.hold)
+          || !canTypeNow(next.hold, row, snapshot.epochSec, this.sent.get(target), this.settleMs)) {
           continue;
         }
         try {

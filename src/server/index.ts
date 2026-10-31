@@ -75,6 +75,8 @@ import { TmuxWatchStore } from "./tmuxWatch.js";
 import { createTmuxSendRouter, DEFAULT_TMUX_SEND_QUEUE_FILE, TmuxSendQueue, toTmuxQueuedMessageDto } from "./tmuxSendQueue.js";
 import { createTpalActionsRouter, findTpalBin } from "./tpalActions.js";
 import { createTmuxFeedbackRouter, DEFAULT_FEEDBACK_PANE_NAME } from "./tmuxFeedback.js";
+import { deliverToFreshPane } from "./feedbackDelivery.js";
+import { DEFAULT_FEEDBACK_LOG_FILE, FeedbackLog } from "./feedbackLog.js";
 import { createTmuxRenameRouter } from "./tmuxRename.js";
 import { createWindowSnoozeRouter, findHideWindowBin } from "./windowSnooze.js";
 import { AUTO_ZOOM_SWEEP_MS, createTmuxAutoZoomRouter, TmuxAutoZoom } from "./tmuxAutoZoom.js";
@@ -141,6 +143,7 @@ const tmuxSendQueue = new TmuxSendQueue({
   },
   onError: (error) => console.error("tmux send queue failed", error)
 });
+const feedbackLog = new FeedbackLog({ filePath: process.env.AGENT_TMUX_WEB_FEEDBACK_LOG_FILE || DEFAULT_FEEDBACK_LOG_FILE });
 const jsonBodyParser = express.json({ limit: jsonBodyLimit });
 
 app.disable("x-powered-by");
@@ -415,19 +418,42 @@ app.use(createTmuxRenameRouter({
   submitText: (target, text) => sendTmuxText(target, text, true, "enter")
 }));
 
+const feedbackAgent = () => process.env.ATW_FEEDBACK_AGENT || "claude";
+const sendFeedback = async (target: string, text: string, options?: { hold?: boolean }) => tmuxSendQueue.send({
+  target,
+  text,
+  enter: true,
+  submitKey: await resolveTmuxSubmitKey(target, undefined),
+  label: "Atw feedback",
+  hold: options?.hold
+});
+const typeFeedback = async (target: string, text: string) => sendTmuxText(target, text, true, await resolveTmuxSubmitKey(target, undefined));
+
 app.use(createTmuxFeedbackRouter({
   listPanes: listTmuxSessions,
   readPaneAgents: readTmuxPaneAgents,
-  send: async (target, text) => tmuxSendQueue.send({
-    target,
-    text,
-    enter: true,
-    submitKey: await resolveTmuxSubmitKey(target, undefined),
-    label: "Atw feedback"
-  }),
+  send: sendFeedback,
+  log: feedbackLog,
   paneOverride: () => process.env.ATW_FEEDBACK_PANE,
+  deliverFresh: (pane, text) => deliverToFreshPane({
+    pane,
+    agent: feedbackAgent(),
+    text,
+    readRows: () => agentRowsCache.rows(),
+    typeText: typeFeedback,
+    submit: (target) => typeFeedback(target, ""),
+    capture: (target) => captureTmuxPane(target),
+    transcriptHasText: async (target, wanted) => {
+      if (feedbackAgent() !== "claude") {
+        return null;
+      }
+      const entry = (await listTmuxSessions()).find((session) => session.name === target);
+      return claudePromptTimes.paneTranscriptHasPrompt({ paneId: target, panePid: entry?.panePid }, wanted);
+    },
+    hold: (target, wanted) => sendFeedback(target, wanted, { hold: true })
+  }),
   startPane: async () => {
-    const agent = process.env.ATW_FEEDBACK_AGENT || "claude";
+    const agent = feedbackAgent();
     const name = DEFAULT_FEEDBACK_PANE_NAME;
     // run.sh cd's into the atw checkout before starting the server.
     const started = await startAgentInTmux(agent, process.env.ATW_FEEDBACK_CWD || process.cwd(), { name });

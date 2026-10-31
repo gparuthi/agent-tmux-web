@@ -75,6 +75,8 @@
         { "path": "src/server/claudePrompts.ts", "type": "registry:file", "target": "~/src/server/claudePrompts.ts" },
         { "path": "src/server/tmuxLastInput.ts", "type": "registry:file", "target": "~/src/server/tmuxLastInput.ts" },
         { "path": "src/server/tmuxSendQueue.ts", "type": "registry:file", "target": "~/src/server/tmuxSendQueue.ts" },
+        { "path": "src/server/feedbackLog.ts", "type": "registry:file", "target": "~/src/server/feedbackLog.ts" },
+        { "path": "src/server/feedbackDelivery.ts", "type": "registry:file", "target": "~/src/server/feedbackDelivery.ts" },
         { "path": "src/shared/tmuxAgents.ts", "type": "registry:file", "target": "~/src/shared/tmuxAgents.ts" },
         { "path": "src/client/tmuxSessionGroups.ts", "type": "registry:file", "target": "~/src/client/tmuxSessionGroups.ts" },
         { "path": "src/client/keyStripCombos.ts", "type": "registry:file", "target": "~/src/client/keyStripCombos.ts" },
@@ -407,6 +409,16 @@
           "path": "src/server/tmuxSendQueue.ts",
           "type": "registry:file",
           "target": "~/src/server/tmuxSendQueue.ts"
+        },
+        {
+          "path": "src/server/feedbackLog.ts",
+          "type": "registry:file",
+          "target": "~/src/server/feedbackLog.ts"
+        },
+        {
+          "path": "src/server/feedbackDelivery.ts",
+          "type": "registry:file",
+          "target": "~/src/server/feedbackDelivery.ts"
         },
         {
           "path": "src/shared/tmuxAgents.ts",

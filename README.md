@@ -46,7 +46,9 @@ tabs without killing the work.
 - A feedback sheet that types your note plus a screenshot path into the agent
   session named Atw, and starts one in the atw checkout when none is running
   (`ATW_FEEDBACK_PANE` pins a pane, `ATW_FEEDBACK_CWD` and `ATW_FEEDBACK_AGENT`
-  choose where and what to start).
+  choose where and what to start). Every note, and whether it landed, is
+  appended to `~/.local/state/atw/feedback.jsonl`
+  (`AGENT_TMUX_WEB_FEEDBACK_LOG_FILE` moves it).
 - Built-in launchers for OpenCode, Codex, Claude Code, Gemini CLI, GitHub
   Copilot, Cursor Agent, Qwen Code, Cline, Aider, goose, and Amp.
 - Alphabetical launcher selection with per-device pins for favorites and a `+`

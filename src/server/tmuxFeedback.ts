@@ -1,6 +1,7 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
 
 import type { TmuxFeedbackResultDto } from "../shared/api.js";
+import type { FeedbackDeliveryResult, FeedbackLog, FeedbackLogEntry } from "./feedbackLog.js";
 import { TmuxRequestError, type TmuxSession } from "./tmux.js";
 import { toTmuxQueuedMessageDto, type TmuxQueuedMessage } from "./tmuxSendQueue.js";
 
@@ -24,13 +25,18 @@ export type TmuxFeedbackContext = {
 export type TmuxFeedbackRouterOptions = {
   listPanes: () => Promise<TmuxSession[]>;
   readPaneAgents: (panes: TmuxSession[]) => Promise<Map<string, string>>;
-  // Types the text and Enter now, or holds it (returning the held message) while the agent is mid-turn.
-  send: (target: string, text: string) => Promise<TmuxQueuedMessage | null>;
+  // Types the text and Enter now, or holds it (returning the held message) while the agent is mid-turn;
+  // with hold it waits until the pane reads at a prompt whatever the agent.
+  send: (target: string, text: string, options?: { hold?: boolean }) => Promise<TmuxQueuedMessage | null>;
+  // Every accepted submission is written here before anything is typed.
+  log: FeedbackLog;
   // Pane target (%N) or display name from ATW_FEEDBACK_PANE; read per request so it can change live.
   paneOverride?: () => string | undefined;
   onSubmitted?: (target: string) => void;
   // Starts the agent that answers atw feedback when no pane is named for it; `ready` resolves true once that agent waits at a prompt.
   startPane?: () => Promise<{ pane: string; ready: Promise<boolean> }>;
+  // Types into a pane startPane just readied and checks it landed; without it the text goes through send.
+  deliverFresh?: (pane: string, text: string) => Promise<FeedbackDeliveryResult>;
 };
 
 // Matches by pane target first, then by display name (case-insensitive); never falls back to another pane.
@@ -76,11 +82,21 @@ export function buildTmuxFeedbackText(message: string, context: TmuxFeedbackCont
   ].filter(Boolean).join(" ");
 }
 
-export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, paneOverride, onSubmitted, startPane }: TmuxFeedbackRouterOptions): Router {
+function queuedOrDelivered(queued: TmuxQueuedMessage | null): FeedbackDeliveryResult {
+  return { outcome: queued ? "queued" : "delivered" };
+}
+
+function errorReason(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, log, paneOverride, onSubmitted, startPane, deliverFresh }: TmuxFeedbackRouterOptions): Router {
   const router = Router();
   type StartedPane = { pane: string; ready: Promise<boolean> };
   // Set synchronously so two posts racing the launch share one pane; cleared once it settles.
   let starting: Promise<StartedPane> | null = null;
+  // One fresh delivery at a time, so two texts never interleave keystrokes or confuse each other's check.
+  let freshLane: Promise<unknown> = Promise.resolve();
 
   function startOrJoin(): Promise<StartedPane> {
     if (!starting) {
@@ -96,16 +112,43 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
     return starting;
   }
 
-  async function sendWhenReady(entry: StartedPane, text: string): Promise<void> {
+  function inFreshLane(task: () => Promise<FeedbackDeliveryResult>): Promise<FeedbackDeliveryResult> {
+    const run = freshLane.then(task, task);
+    freshLane = run.catch(() => undefined);
+    return run;
+  }
+
+  async function deliverToStarted(entry: StartedPane, text: string): Promise<FeedbackDeliveryResult> {
     // Right after launch the pane runs a shell, so nothing is typed before the agent waits at a prompt.
     if (!await entry.ready.catch(() => false)) {
-      console.error(`The ${DEFAULT_FEEDBACK_PANE_NAME} session never became ready; feedback dropped: ${text}`);
-      return;
+      // Busy (often the owner typing into it) or never seen ready: the queue types it once the pane reads at a prompt.
+      return queuedOrDelivered(await send(entry.pane, text, { hold: true }));
     }
-    const queued = await send(entry.pane, text);
-    if (!queued) {
+    if (deliverFresh) {
+      return inFreshLane(() => deliverFresh(entry.pane, text));
+    }
+    return queuedOrDelivered(await send(entry.pane, text));
+  }
+
+  async function sendWhenReady(entry: StartedPane, record: FeedbackLogEntry): Promise<void> {
+    const result = await deliverToStarted(entry, record.text)
+      .catch((error: unknown): FeedbackDeliveryResult => ({ outcome: "undelivered", reason: errorReason(error) }));
+    await log.outcome(record, result);
+    if (result.outcome === "delivered" || result.outcome === "retried") {
       onSubmitted?.(entry.pane);
     }
+  }
+
+  async function sendNow(target: string, record: FeedbackLogEntry): Promise<TmuxQueuedMessage | null> {
+    let queued: TmuxQueuedMessage | null;
+    try {
+      queued = await send(target, record.text);
+    } catch (error) {
+      await log.outcome(record, { outcome: "undelivered", reason: errorReason(error) });
+      throw error;
+    }
+    await log.outcome(record, queuedOrDelivered(queued));
+    return queued;
   }
 
   router.post("/api/tmux/feedback", handle(async (req, res) => {
@@ -126,6 +169,8 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
       build: flattenFeedbackText(rawContext.build, CONTEXT_VALUE_MAX_LENGTH),
       screenshotError: flattenFeedbackText(rawContext.screenshotError, CONTEXT_VALUE_MAX_LENGTH)
     };
+    const text = buildTmuxFeedbackText(message, context, screenshot);
+    const record = (target: string) => log.record({ target, text, message, context, screenshot });
     const override = paneOverride?.();
     let pane: TmuxSession;
     try {
@@ -135,7 +180,8 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
         throw error;
       }
       const entry = await startOrJoin();
-      void sendWhenReady(entry, buildTmuxFeedbackText(message, context, screenshot))
+      const logged = await record(entry.pane);
+      void sendWhenReady(entry, logged)
         .catch((sendError: unknown) => console.error("Failed to send feedback to the new Atw session", sendError));
       res.json({
         data: { target: entry.pane, paneName: DEFAULT_FEEDBACK_PANE_NAME, started: true } satisfies TmuxFeedbackResultDto
@@ -147,7 +193,7 @@ export function createTmuxFeedbackRouter({ listPanes, readPaneAgents, send, pane
     if (!agent) {
       throw new TmuxRequestError(`The pane "${pane.displayName ?? pane.name}" is not running an agent (${pane.currentCommand ?? "nothing"})`);
     }
-    const queued = await send(pane.name, buildTmuxFeedbackText(message, context, screenshot));
+    const queued = await sendNow(pane.name, await record(pane.name));
     if (!queued) {
       onSubmitted?.(pane.name);
     }
