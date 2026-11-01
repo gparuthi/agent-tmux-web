@@ -292,6 +292,15 @@ describe("collapseFooterSpaces", () => {
     expect(text(collapseFooterSpaces([{ text: "a   b", style: {} }]))).toBe("a   b");
   });
 
+  it("keeps hyperlink segments apart from plain text with the same style", () => {
+    const [segments = []] = parseAnsiLines("  \u001b]8;;https://a.test/\u0007link\u001b]8;;\u0007 after");
+    expect(collapseFooterSpaces(segments)).toEqual([
+      { text: "  ", style: {} },
+      { text: "link", style: {}, href: "https://a.test/" },
+      { text: " after", style: {} }
+    ]);
+  });
+
   it("collapses runs that span ANSI segments and keeps every segment's style", () => {
     const [segments = []] = parseAnsiLines(`  \u001b[1mbuilder\u001b[0m  Running   \u001b[2m${" ".repeat(40)}5m 48s\u001b[0m`);
     const collapsed = collapseFooterSpaces(segments);

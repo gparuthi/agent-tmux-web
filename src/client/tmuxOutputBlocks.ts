@@ -110,7 +110,7 @@ export function collapseFooterSpaces(segments: readonly AnsiSegment[]): AnsiSegm
   const push = (segment: AnsiSegment) => {
     if (!segment.text) return;
     const last = collapsed[collapsed.length - 1];
-    if (last && last.style === segment.style) last.text += segment.text;
+    if (last && last.style === segment.style && last.href === segment.href) last.text += segment.text;
     else collapsed.push({ ...segment });
   };
   let leading = true;
@@ -132,11 +132,11 @@ export function collapseFooterSpaces(segments: readonly AnsiSegment[]): AnsiSegm
       if (!part.startsWith(" ")) {
         flushRun();
         leading = false;
-        push({ text: part, style: segment.style });
+        push({ ...segment, text: part });
       } else if (leading) {
-        push({ text: part, style: segment.style });
+        push({ ...segment, text: part });
       } else {
-        run.push({ text: part, style: segment.style });
+        run.push({ ...segment, text: part });
         runLength += part.length;
       }
     }

@@ -21,12 +21,12 @@ describe("browser tmux terminal helpers", () => {
   it("builds util-linux script args for attaching to tmux inside a pty", () => {
     expect(buildScriptArgsForTmuxAttach("codex-ui", {}, undefined, "linux")).toEqual([
       "-qfec",
-      "tmux attach-session -t codex-ui",
+      "tmux -T hyperlinks attach-session -t codex-ui",
       "/dev/null"
     ]);
     expect(buildScriptArgsForTmuxAttach("codex-ui", { ignoreSize: true }, undefined, "linux")).toEqual([
       "-qfec",
-      "tmux attach-session -f ignore-size -t codex-ui",
+      "tmux -T hyperlinks attach-session -f ignore-size -t codex-ui",
       "/dev/null"
     ]);
   });
@@ -34,7 +34,7 @@ describe("browser tmux terminal helpers", () => {
   it("sets the script pty size before attaching a browser raw terminal", () => {
     expect(buildScriptArgsForTmuxAttach("codex-ui", {}, { cols: 132, rows: 36 }, "linux")).toEqual([
       "-qfec",
-      "stty cols 132 rows 36; tmux attach-session -t codex-ui",
+      "stty cols 132 rows 36; tmux -T hyperlinks attach-session -t codex-ui",
       "/dev/null"
     ]);
   });
@@ -45,7 +45,7 @@ describe("browser tmux terminal helpers", () => {
     expect(policy).toEqual({ attachOptions: {} });
     expect(buildScriptArgsForTmuxAttach("codex-ui", policy.attachOptions, undefined, "linux")).toEqual([
       "-qfec",
-      "tmux attach-session -t codex-ui",
+      "tmux -T hyperlinks attach-session -t codex-ui",
       "/dev/null"
     ]);
   });
@@ -56,7 +56,7 @@ describe("browser tmux terminal helpers", () => {
       "/dev/null",
       "sh",
       "-c",
-      "stty cols 132 rows 36; tmux attach-session -t codex-ui"
+      "stty cols 132 rows 36; tmux -T hyperlinks attach-session -t codex-ui"
     ]);
     expect(buildScriptArgsForShellCommand("true", "linux")).toEqual(["-qfec", "true", "/dev/null"]);
   });
@@ -79,13 +79,13 @@ describe("browser tmux terminal helpers", () => {
     const target = { baseSession: "main", rawSession: "atw-raw-1a2b", windowId: "@16", paneId: "%38" };
 
     expect(buildTmuxGroupedAttachShellCommand(target)).toBe(
-      "tmux new-session -f active-pane -t main -s atw-raw-1a2b ';' "
+      "tmux -T hyperlinks new-session -f active-pane -t main -s atw-raw-1a2b ';' "
       + "set-option -t atw-raw-1a2b destroy-unattached on ';' "
       + "select-window -t atw-raw-1a2b:@16 ';' "
       + "select-pane -t '%38'"
     );
     expect(buildTmuxGroupedAttachShellCommand(target, { ignoreSize: true }, { cols: 100, rows: 30 })).toBe(
-      "stty cols 100 rows 30; tmux new-session -f active-pane,ignore-size -t main -s atw-raw-1a2b ';' "
+      "stty cols 100 rows 30; tmux -T hyperlinks new-session -f active-pane,ignore-size -t main -s atw-raw-1a2b ';' "
       + "set-option -t atw-raw-1a2b destroy-unattached on ';' "
       + "select-window -t atw-raw-1a2b:@16 ';' "
       + "select-pane -t '%38'"
@@ -96,7 +96,7 @@ describe("browser tmux terminal helpers", () => {
     const target = { baseSession: "main", rawSession: "atw-raw-view1a2b", windowId: "@16", paneId: "%38" };
 
     expect(buildTmuxGroupedAttachShellCommand(target, { readOnly: true }, { cols: 47, rows: 50 })).toBe(
-      "stty cols 47 rows 50; tmux new-session -f active-pane,read-only -t main -s atw-raw-view1a2b ';' "
+      "stty cols 47 rows 50; tmux -T hyperlinks new-session -f active-pane,read-only -t main -s atw-raw-view1a2b ';' "
       + "set-option -t atw-raw-view1a2b destroy-unattached on ';' "
       + "select-window -t atw-raw-view1a2b:@16 ';' "
       + "select-pane -t '%38'"
@@ -113,7 +113,7 @@ describe("browser tmux terminal helpers", () => {
       windowId: "@2",
       paneId: "%5"
     })).toBe(
-      "tmux new-session -f active-pane -t dk--box--main -s atw-raw-ff00 ';' "
+      "tmux -T hyperlinks new-session -f active-pane -t dk--box--main -s atw-raw-ff00 ';' "
       + "set-option -t atw-raw-ff00 destroy-unattached on ';' "
       + "select-window -t atw-raw-ff00:@2 ';' "
       + "select-pane -t '%5'"
@@ -128,8 +128,8 @@ describe("browser tmux terminal helpers", () => {
   });
 
   it("shell-quotes tmux session names before embedding them in script commands", () => {
-    expect(buildTmuxAttachShellCommand("codex work's")).toBe("tmux attach-session -t 'codex work'\\''s'");
-    expect(buildTmuxAttachShellCommand("codex work's", { ignoreSize: true })).toBe("tmux attach-session -f ignore-size -t 'codex work'\\''s'");
+    expect(buildTmuxAttachShellCommand("codex work's")).toBe("tmux -T hyperlinks attach-session -t 'codex work'\\''s'");
+    expect(buildTmuxAttachShellCommand("codex work's", { ignoreSize: true })).toBe("tmux -T hyperlinks attach-session -f ignore-size -t 'codex work'\\''s'");
   });
 
   it("normalizes browser terminal dimensions to a safe tmux size", () => {

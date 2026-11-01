@@ -1234,22 +1234,25 @@ export function App() {
     let rawTerminalEffectActive = true;
     node.textContent = "";
 
+    const activateRawTerminalLink = (_event: MouseEvent, uri: string) => {
+      if (!openRawTerminalLink(uri)) {
+        setTerminalStatus("Unable to open link");
+      }
+    };
     const terminal = new XtermTerminal({
       allowProposedApi: false,
       convertEol: true,
       cursorBlink: true,
       fontFamily: "\"SFMono-Regular\", Consolas, \"Liberation Mono\", monospace",
       fontSize: 12,
+      // OSC 8 hyperlinks; openRawTerminalLink only opens http(s).
+      linkHandler: { activate: activateRawTerminalLink },
       scrollback: 6000,
       theme: terminalThemeForColorTheme(colorTheme),
       vtExtensions: { kittyKeyboard: true }
     });
     const fitAddon = new FitAddon();
-    const webLinksAddon = new WebLinksAddon((_event, uri) => {
-      if (!openRawTerminalLink(uri)) {
-        setTerminalStatus("Unable to open link");
-      }
-    });
+    const webLinksAddon = new WebLinksAddon(activateRawTerminalLink);
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(webLinksAddon);
     terminal.attachCustomKeyEventHandler((event) => {

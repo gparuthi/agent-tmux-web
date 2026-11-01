@@ -18,3 +18,11 @@ describe("Raw terminal touch dependencies", () => {
     expect(packageJson.dependencies["@xterm/addon-web-links"]).toBe("0.13.0-beta.291");
   });
 });
+
+describe("Raw terminal hyperlinks", () => {
+  it("routes OSC 8 hyperlinks through the same opener as plain URLs", () => {
+    const app = readFileSync(join(process.cwd(), "src/client/App.tsx"), "utf8");
+    expect(app).toContain("linkHandler: { activate: activateRawTerminalLink }");
+    expect(app).toContain("new WebLinksAddon(activateRawTerminalLink)");
+  });
+});

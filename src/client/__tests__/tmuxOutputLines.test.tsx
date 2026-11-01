@@ -11,6 +11,18 @@ describe("TmuxOutputLines", () => {
     expect(html).toContain("rel=\"noreferrer noopener\"");
   });
 
+  it("renders OSC 8 hyperlinks as anchors without linkifying their text again", () => {
+    const output = "\u001b[94m\u001b]8;id=wj3jn3;https://claude.ai/artifact/8MPGRRU8S62TjzRxDxVVjd\u001b\\Shelf\u001b[39m\u001b]8;;\u001b\\. It's private to you.\n"
+      + "\u001b]8;;https://a.test/page\u0007https://a.test/page\u001b]8;;\u0007 and https://b.test/ and \u001b]8;;javascript:alert(1)\u0007bad\u001b]8;;\u0007";
+    const html = renderToStaticMarkup(<pre><TmuxOutputLines output={output} /></pre>);
+    expect(html).toContain("<a href=\"https://claude.ai/artifact/8MPGRRU8S62TjzRxDxVVjd\" rel=\"noopener noreferrer\" style=\"color:#82c4ff\" target=\"_blank\">Shelf</a>. It&#x27;s private to you.");
+    expect(html).toContain("<a href=\"https://a.test/page\" rel=\"noopener noreferrer\" target=\"_blank\">https://a.test/page</a>");
+    expect(html.match(/<a /g)).toHaveLength(3);
+    expect(html).toContain("<a href=\"https://b.test/\"");
+    expect(html).not.toContain("javascript:");
+    expect(html).not.toContain("\u001b");
+  });
+
   it("keeps scroll anchors on stream lines and omits them from details", () => {
     const stream = renderToStaticMarkup(<pre><TmuxOutputLines output={"first\nsecond"} /></pre>);
     const details = renderToStaticMarkup(<pre><TmuxOutputLines anchors={false} output="Context" /></pre>);

@@ -40,14 +40,7 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
     const text = segments.map((segment) => segment.text).join("");
     return (
       <span className={className} {...anchorProps} key={`${index}-${text}`}>
-        {text === "" ? "\u00a0" : segments.map((segment, segmentIndex) => {
-          const style = ansiSegmentStyle(segment.style, theme);
-          return style ? (
-            <span key={segmentIndex} style={style}><LinkifiedText text={segment.text} /></span>
-          ) : (
-            <LinkifiedText key={segmentIndex} text={segment.text} />
-          );
-        })}
+        {text === "" ? "\u00a0" : segments.map((segment, segmentIndex) => renderSegment(segment, segmentIndex, theme))}
       </span>
     );
   };
@@ -73,14 +66,7 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
       >
         {labelText ? (
           <span className="tmux-output-rule-label">
-            {label.map((segment, segmentIndex) => {
-              const style = ansiSegmentStyle(segment.style, theme);
-              return style ? (
-                <span key={segmentIndex} style={style}><LinkifiedText text={segment.text} /></span>
-              ) : (
-                <LinkifiedText key={segmentIndex} text={segment.text} />
-              );
-            })}
+            {label.map((segment, segmentIndex) => renderSegment(segment, segmentIndex, theme))}
           </span>
         ) : (
           <span className="tmux-output-rule-stub">───</span>
@@ -102,6 +88,21 @@ export const TmuxOutputLines = memo(function TmuxOutputLines({ output, anchors =
     ) : rows;
   });
 });
+
+// OSC 8 segments are already links, so their text is not linkified again.
+function renderSegment(segment: AnsiSegment, key: number, theme: ColorTheme): ReactNode {
+  const style = ansiSegmentStyle(segment.style, theme);
+  if (segment.href) {
+    return (
+      <a href={segment.href} key={key} rel="noopener noreferrer" style={style} target="_blank">{segment.text}</a>
+    );
+  }
+  return style ? (
+    <span key={key} style={style}><LinkifiedText text={segment.text} /></span>
+  ) : (
+    <LinkifiedText key={key} text={segment.text} />
+  );
+}
 
 function TmuxOutputTable({ columns, children }: { columns: number; children: ReactNode }) {
   const frameRef = useRef<HTMLSpanElement | null>(null);

@@ -6,6 +6,7 @@ import {
   contrastRatio,
   ensureReadable,
   parseAnsiLines,
+  safeHyperlinkHref,
   stripAnsi,
   THEME_OUTPUT_COLORS,
   xtermPaletteRgb
@@ -44,14 +45,52 @@ describe("parseAnsiLines", () => {
   });
 
   it("carries style across lines and drops non-SGR escapes", () => {
-    const lines = parseAnsiLines(`${ESC}[33myellow\nstill${ESC}[2K${ESC}]8;;https://x.test${ESC}\\link${ESC}]8;;${ESC}\\${ESC}[0m\n`);
+    const lines = parseAnsiLines(`${ESC}[33myellow\nstill${ESC}[2K${ESC}]0;title${ESC}\\ here${ESC}[0m\n`);
     expect(lines[0]).toEqual([{ text: "yellow", style: { fg: { kind: "palette", index: 3 } } }]);
-    expect(lines[1]).toEqual([{ text: "stilllink", style: { fg: { kind: "palette", index: 3 } } }]);
+    expect(lines[1]).toEqual([{ text: "still here", style: { fg: { kind: "palette", index: 3 } } }]);
     expect(lines[2]).toEqual([]);
+  });
+
+  it("carries OSC 8 hyperlinks on segments until an empty URI closes them", () => {
+    // Claude Code's artifact link, as tmux capture-pane -e prints it.
+    const [line] = parseAnsiLines(`${ESC}[94m${ESC}]8;id=wj3jn3;https://claude.ai/artifact/8MPGRRU8S62TjzRxDxVVjd${ESC}\\Shelf${ESC}[39m${ESC}]8;;${ESC}\\. It's private to you.`);
+    expect(line).toEqual([
+      { text: "Shelf", style: { fg: { kind: "palette", index: 12 } }, href: "https://claude.ai/artifact/8MPGRRU8S62TjzRxDxVVjd" },
+      { text: ". It's private to you.", style: {} }
+    ]);
+  });
+
+  it("accepts BEL and ESC backslash terminators and splits segments at link edges with the same style", () => {
+    const [line] = parseAnsiLines(`see ${ESC}]8;;https://a.test/x\u0007one${ESC}]8;;\u0007 and ${ESC}]8;;mailto:me@a.test${ESC}\\two${ESC}]8;;${ESC}\\ end`);
+    expect(line).toEqual([
+      { text: "see ", style: {} },
+      { text: "one", style: {}, href: "https://a.test/x" },
+      { text: " and ", style: {} },
+      { text: "two", style: {}, href: "mailto:me@a.test" },
+      { text: " end", style: {} }
+    ]);
+  });
+
+  it("keeps a hyperlink open across lines like style", () => {
+    const lines = parseAnsiLines(`${ESC}]8;;https://a.test/long\u0007first half\nsecond half${ESC}]8;;\u0007 after\nplain`);
+    expect(lines).toEqual([
+      [{ text: "first half", style: {}, href: "https://a.test/long" }],
+      [{ text: "second half", style: {}, href: "https://a.test/long" }, { text: " after", style: {} }],
+      [{ text: "plain", style: {} }]
+    ]);
+  });
+
+  it("renders hyperlinks with disallowed or malformed URIs as plain text", () => {
+    const [line] = parseAnsiLines(`${ESC}]8;;javascript:alert(1)\u0007bad${ESC}]8;;\u0007 ${ESC}]8;;file:///etc/passwd\u0007file${ESC}]8;;\u0007 ${ESC}]8;;not a url\u0007junk${ESC}]8;;\u0007`);
+    expect(line).toEqual([{ text: "bad file junk", style: {} }]);
+    expect(safeHyperlinkHref("https://a.test")).toBe("https://a.test/");
+    expect(safeHyperlinkHref("data:text/html,x")).toBeUndefined();
+    expect(safeHyperlinkHref("")).toBeUndefined();
   });
 
   it("strips every escape for plain text", () => {
     expect(stripAnsi(`${ESC}[38;5;231m✻ Claude${ESC}[39m ${ESC}]0;title\u0007ok`)).toBe("✻ Claude ok");
+    expect(stripAnsi(`${ESC}]8;id=1;https://a.test${ESC}\\link${ESC}]8;;${ESC}\\.`)).toBe("link.");
   });
 });
 

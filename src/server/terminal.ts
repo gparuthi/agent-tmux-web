@@ -60,6 +60,9 @@ export function buildScriptSpawn(command: string, platform: NodeJS.Platform = pr
   return { file: "script", args: scriptArgs };
 }
 
+// Per-client feature so tmux forwards OSC 8 hyperlinks to xterm.js without touching global terminal-features.
+const TMUX_RAW_CLIENT = "tmux -T hyperlinks";
+
 // Grouped session keeps desktop clients on their window; active-pane avoids moving the shared active pane.
 export function buildTmuxGroupedAttachShellCommand(
   target: TmuxGroupedAttachTarget,
@@ -68,7 +71,7 @@ export function buildTmuxGroupedAttachShellCommand(
 ): string {
   const flags = ["active-pane", ...(options.ignoreSize ? ["ignore-size"] : []), ...(options.readOnly ? ["read-only"] : [])].join(",");
   const commands = [
-    `tmux new-session -f ${flags} -t ${shellQuote(target.baseSession)} -s ${shellQuote(target.rawSession)}`,
+    `${TMUX_RAW_CLIENT} new-session -f ${flags} -t ${shellQuote(target.baseSession)} -s ${shellQuote(target.rawSession)}`,
     `set-option -t ${shellQuote(target.rawSession)} destroy-unattached on`,
     ...(target.windowId ? [`select-window -t ${shellQuote(`${target.rawSession}:${target.windowId}`)}`] : []),
     ...(target.paneId ? [`select-pane -t ${shellQuote(target.paneId)}`] : [])
@@ -85,7 +88,7 @@ export function isTmuxRawSessionName(name: string): boolean {
 }
 
 export function buildTmuxAttachShellCommand(session: string, options: TmuxAttachOptions = {}, size?: TerminalSize): string {
-  const attachCommand = `tmux attach-session${options.ignoreSize ? " -f ignore-size" : ""} -t ${shellQuote(session)}`;
+  const attachCommand = `${TMUX_RAW_CLIENT} attach-session${options.ignoreSize ? " -f ignore-size" : ""} -t ${shellQuote(session)}`;
   if (!size) {
     return attachCommand;
   }

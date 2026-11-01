@@ -16,12 +16,14 @@ export type AnsiStyle = {
   strike?: true;
 };
 
-export type AnsiSegment = { text: string; style: AnsiStyle };
+// href is set inside an OSC 8 hyperlink whose URI uses an allowed scheme.
+export type AnsiSegment = { text: string; style: AnsiStyle; href?: string };
 
 type Rgb = [number, number, number];
 
 // CSI (SGR when the final byte is "m"), OSC (titles, hyperlinks), and other two-byte escapes.
-const ESCAPE_PATTERN = /\u001b\[([0-9;:?<=>]*)[ -/]*([@-~])|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
+const ESCAPE_PATTERN = /\u001b\[([0-9;:?<=>]*)[ -/]*([@-~])|\u001b\]([^\u0007\u001b]*)(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
+const HYPERLINK_SCHEMES = new Set(["http:", "https:", "mailto:"]);
 
 export function stripAnsi(text: string): string {
   return text.replace(ESCAPE_PATTERN, "");
@@ -33,6 +35,7 @@ export function hasAnsi(text: string): boolean {
 
 export function parseAnsiLines(output: string): AnsiSegment[][] {
   let style: AnsiStyle = {};
+  let href: string | undefined;
   return output.split(/\r?\n/).map((line) => {
     const segments: AnsiSegment[] = [];
     let cursor = 0;
@@ -41,10 +44,10 @@ export function parseAnsiLines(output: string): AnsiSegment[][] {
         return;
       }
       const last = segments[segments.length - 1];
-      if (last && last.style === style) {
+      if (last && last.style === style && last.href === href) {
         last.text += text;
       } else {
-        segments.push({ text, style });
+        segments.push(href ? { text, style, href } : { text, style });
       }
     };
     for (const match of line.matchAll(ESCAPE_PATTERN)) {
@@ -52,11 +55,31 @@ export function parseAnsiLines(output: string): AnsiSegment[][] {
       cursor = (match.index ?? 0) + match[0].length;
       if (match[2] === "m" && match[0].startsWith("\u001b[")) {
         style = applySgr(style, match[1] ?? "");
+      } else if (match[3]?.startsWith("8;")) {
+        href = parseHyperlink(match[3]);
       }
     }
     push(line.slice(cursor));
     return segments;
   });
+}
+
+// OSC 8 body is "8;params;URI"; an empty URI closes the link.
+function parseHyperlink(body: string): string | undefined {
+  const separator = body.indexOf(";", 2);
+  return separator < 0 ? undefined : safeHyperlinkHref(body.slice(separator + 1));
+}
+
+export function safeHyperlinkHref(uri: string): string | undefined {
+  if (!uri) {
+    return undefined;
+  }
+  try {
+    const url = new URL(uri);
+    return HYPERLINK_SCHEMES.has(url.protocol) ? url.href : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 export function applySgr(current: AnsiStyle, params: string): AnsiStyle {
