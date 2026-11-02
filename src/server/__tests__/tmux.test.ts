@@ -499,6 +499,25 @@ describe("tmux command builders", () => {
     expect(buildTmuxLiteralSendArgs("%12", ";;")).toEqual([["send-keys", "-t", "%12", "-H", "3b", "3b"]]);
   });
 
+  it("sends line breaks in literal text as C-j keys", () => {
+    const literal = (text: string) => ["send-keys", "-t", "%12", "-l", text];
+    const ctrlJ = ["send-keys", "-t", "%12", "C-j"];
+    expect(buildTmuxLiteralSendArgs("%12", "!echo c1")).toEqual([literal("!echo c1")]);
+    expect(buildTmuxLiteralSendArgs("%12", "!echo c1\n  echo d1")).toEqual([literal("!echo c1"), ctrlJ, literal("  echo d1")]);
+    expect(buildTmuxLiteralSendArgs("%12", "a\n\nb")).toEqual([literal("a"), ctrlJ, ctrlJ, literal("b")]);
+    expect(buildTmuxLiteralSendArgs("%12", "\nx\n")).toEqual([ctrlJ, literal("x"), ctrlJ]);
+    expect(buildTmuxLiteralSendArgs("%12", "\n")).toEqual([ctrlJ]);
+    expect(buildTmuxLiteralSendArgs("%12", "a\r\nb\rc")).toEqual([literal("a"), ctrlJ, literal("b"), ctrlJ, literal("c")]);
+    expect(buildTmuxLiteralSendArgs("%12", "a\r\n\r\nb")).toEqual([literal("a"), ctrlJ, ctrlJ, literal("b")]);
+    expect(buildTmuxLiteralSendArgs("%12", "cd x;\nls;;")).toEqual([
+      literal("cd x"),
+      ["send-keys", "-t", "%12", "-H", "3b"],
+      ctrlJ,
+      literal("ls"),
+      ["send-keys", "-t", "%12", "-H", "3b", "3b"]
+    ]);
+  });
+
   it("closes only an exact listed pane target with kill-pane", () => {
     const entry = (name: string, extra: Record<string, unknown> = {}) => ({
       name, session: "main", windows: 1, created: "", attached: false, clientCount: 0, ...extra
@@ -549,11 +568,12 @@ describe("tmux command builders", () => {
     expect(tmuxSubmitDelayMs("enter", "")).toBe(0);
   });
 
-  it("chunks large tmux literal sends without splitting surrogate pairs", () => {
+  it("chunks large tmux literal sends without splitting surrogate pairs or CRLF", () => {
     const chunks = chunkTmuxLiteralText(`abcd🙂efgh`, 5);
 
     expect(chunks).toEqual(["abcd", "🙂efg", "h"]);
     expect(chunkTmuxLiteralText("abcdef", 3)).toEqual(["abc", "def"]);
+    expect(chunkTmuxLiteralText("ab\r\ncd", 3)).toEqual(["ab", "\r\nc", "d"]);
     expect(() => chunkTmuxLiteralText("abc", 0)).toThrow("maxChunkLength");
   });
 

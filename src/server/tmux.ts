@@ -298,13 +298,21 @@ export function buildTmuxSendKeyArgs(session: string, key: string): string[] {
 
 // tmux reads an argument's trailing ";" as a command separator even with -l, and "\;" eats a
 // preceding backslash, so a trailing ";" goes as its hex code instead.
-export function buildTmuxLiteralSendArgs(session: string, chunk: string): string[][] {
-  const head = chunk.replace(/;+$/, "");
-  const semicolons = chunk.length - head.length;
+function buildTmuxLiteralLineArgs(session: string, line: string): string[][] {
+  const head = line.replace(/;+$/, "");
+  const semicolons = line.length - head.length;
   return [
     ...(head ? [["send-keys", "-t", session, "-l", head]] : []),
     ...(semicolons > 0 ? [["send-keys", "-t", session, "-H", ...Array<string>(semicolons).fill("3b")]] : [])
   ];
+}
+
+// A "\n" inside send-keys -l is dropped once the pane app enables extended keys, so line breaks go as C-j.
+export function buildTmuxLiteralSendArgs(session: string, chunk: string): string[][] {
+  return chunk.split(/\r\n|\r|\n/).flatMap((line, index) => [
+    ...(index > 0 ? [["send-keys", "-t", session, "C-j"]] : []),
+    ...buildTmuxLiteralLineArgs(session, line)
+  ]);
 }
 
 export function detectTmuxSubmitKey(output: string): TmuxSubmitKey {
@@ -328,7 +336,8 @@ export function chunkTmuxLiteralText(text: string, maxChunkLength = TMUX_LITERAL
   let index = 0;
   while (index < text.length) {
     let end = Math.min(index + maxChunkLength, text.length);
-    if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1))) {
+    // Keep surrogate pairs and CRLF within one chunk.
+    if (end < text.length && (isHighSurrogate(text.charCodeAt(end - 1)) || (text[end - 1] === "\r" && text[end] === "\n"))) {
       end -= 1;
     }
     if (end <= index) {
