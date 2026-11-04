@@ -297,12 +297,12 @@ export function buildTmuxSendKeyArgs(session: string, key: string): string[] {
 }
 
 // tmux reads an argument's trailing ";" as a command separator even with -l, and "\;" eats a
-// preceding backslash, so a trailing ";" goes as its hex code instead.
+// preceding backslash, so a trailing ";" goes as its hex code instead. "--" keeps a leading "-" as text.
 function buildTmuxLiteralLineArgs(session: string, line: string): string[][] {
   const head = line.replace(/;+$/, "");
   const semicolons = line.length - head.length;
   return [
-    ...(head ? [["send-keys", "-t", session, "-l", head]] : []),
+    ...(head ? [["send-keys", "-t", session, "-l", "--", head]] : []),
     ...(semicolons > 0 ? [["send-keys", "-t", session, "-H", ...Array<string>(semicolons).fill("3b")]] : [])
   ];
 }

@@ -491,16 +491,29 @@ describe("tmux command builders", () => {
   });
 
   it("sends literal text with any trailing semicolons as hex keys", () => {
-    expect(buildTmuxLiteralSendArgs("%12", "/rename a;b")).toEqual([["send-keys", "-t", "%12", "-l", "/rename a;b"]]);
+    expect(buildTmuxLiteralSendArgs("%12", "/rename a;b")).toEqual([["send-keys", "-t", "%12", "-l", "--", "/rename a;b"]]);
     expect(buildTmuxLiteralSendArgs("%12", "/rename x\\;")).toEqual([
-      ["send-keys", "-t", "%12", "-l", "/rename x\\"],
+      ["send-keys", "-t", "%12", "-l", "--", "/rename x\\"],
       ["send-keys", "-t", "%12", "-H", "3b"]
     ]);
     expect(buildTmuxLiteralSendArgs("%12", ";;")).toEqual([["send-keys", "-t", "%12", "-H", "3b", "3b"]]);
   });
 
+  it("ends tmux's flags before literal text, so a leading dash stays text", () => {
+    const literal = (text: string) => ["send-keys", "-t", "%12", "-l", "--", text];
+    for (const line of ["- item", "-", "--", "-l", "-t %99", "--help"]) {
+      expect(buildTmuxLiteralSendArgs("%12", line), line).toEqual([literal(line)]);
+    }
+    expect(buildTmuxLiteralSendArgs("%12", "- one\n- two;")).toEqual([
+      literal("- one"),
+      ["send-keys", "-t", "%12", "C-j"],
+      literal("- two"),
+      ["send-keys", "-t", "%12", "-H", "3b"]
+    ]);
+  });
+
   it("sends line breaks in literal text as C-j keys", () => {
-    const literal = (text: string) => ["send-keys", "-t", "%12", "-l", text];
+    const literal = (text: string) => ["send-keys", "-t", "%12", "-l", "--", text];
     const ctrlJ = ["send-keys", "-t", "%12", "C-j"];
     expect(buildTmuxLiteralSendArgs("%12", "!echo c1")).toEqual([literal("!echo c1")]);
     expect(buildTmuxLiteralSendArgs("%12", "!echo c1\n  echo d1")).toEqual([literal("!echo c1"), ctrlJ, literal("  echo d1")]);
@@ -1001,6 +1014,23 @@ describe.skipIf(!tmuxAvailable)("tmux pane targeting against a real tmux server"
     }
     expect(output).toMatch(/\^\[x\^\[;\^B/);
     await expect(sendTmuxKey(pane!.name, "kill-server")).rejects.toThrow(/Unsupported tmux key/);
+  });
+
+  it("types every line of a dash-led list, with no partial draft", async () => {
+    await testTmux(["new-session", "-d", "-s", "atwdash", "cat"]);
+    const pane = (await listTmuxSessions()).find((entry) => entry.session === "atwdash");
+    expect(pane).toBeDefined();
+    const lines = ["- first", "- second;", "-", "--", "-l", "-t %99", "--help", "last line"];
+    await sendTmuxText(pane!.name, lines.join("\n"), false, "enter");
+    let output = "";
+    for (let attempt = 0; attempt < 30 && !output.includes("last line"); attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      output = await captureTmuxPane(pane!.name, 50);
+    }
+    // The tty echoes each line and cat repeats it, except the last, still unsubmitted line.
+    const shown = output.split("\n").map((line) => line.trimEnd());
+    expect(shown).toEqual(lines.flatMap((line, index) => (index < lines.length - 1 ? [line, line] : [line])));
+    await testTmux(["kill-session", "-t", "=atwdash"]);
   });
 
   it("closes one pane and leaves its sibling running", async () => {
